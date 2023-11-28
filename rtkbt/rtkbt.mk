@@ -34,10 +34,11 @@ PRODUCT_PACKAGES += \
 	libbt-vendor-realtek
 
 PRODUCT_PROPERTY_OVERRIDES += \
-	persist.bluetooth.btsnoopenable=false \
-	persist.bluetooth.btsnooppath=/sdcard/btsnoop_hci.cfa \
+	persist.bluetooth.btsnooplogmode=disable \
+	persist.bluetooth.btsnooppath=/data/misc/bluetooth/logs/btsnoop_hci.log \
 	persist.bluetooth.btsnoopsize=0xffff \
-	persist.bluetooth.rtkcoex=true \
-	bluetooth.enable_timeout_ms=11000
+	persist.bluetooth.showdeviceswithoutnames=false \
+	vendor.bluetooth.enable_timeout_ms=11000 \
+	vendor.realtek.bluetooth.en=false
 
 
