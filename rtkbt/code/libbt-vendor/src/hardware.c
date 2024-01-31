@@ -27,7 +27,7 @@
  ******************************************************************************/
 
 #define LOG_TAG "bt_hwcfg"
-#define RTKBT_RELEASE_NAME "20220111_BT_ANDROID_11.0"
+#define RTKBT_RELEASE_NAME "20230424_BT_ANDROID_12.0"
 
 #include <utils/Log.h>
 #include <sys/types.h>
@@ -74,6 +74,15 @@ extern bool rtkbt_auto_restart;
 static const uint8_t RTK_EPATCH_SIGNATURE[8]={0x52,0x65,0x61,0x6C,0x74,0x65,0x63,0x68};
 //signature: rtbtcore
 static const uint8_t RTK_EPATCH_SIGNATURE_V2[8]={0x52,0x54,0x42,0x54,0x43,0x6F,0x72,0x65};
+
+/* fw Section opcode */
+enum {
+  FW_PATCH_SNIPPET = 1,
+  FW_DUMMY_HEADER,
+  FW_SECURITY_SIGNATURE,
+  FW_OTA_FLAG
+};
+
 
 bt_hw_cfg_cb_t hw_cfg_cb;
 
@@ -351,7 +360,7 @@ struct rtk_epatch_entry *rtk_get_patch_entry(bt_hw_cfg_cb_t *cfg_cb)
 
 uint16_t rtk_get_v1_final_fw(bt_hw_cfg_cb_t* cfg_cb)
 {
-    uint16_t fw_patch_len = -1;
+    uint16_t fw_patch_len = 0;
     struct rtk_epatch_entry* entry = NULL;
     struct rtk_epatch *patch = (struct rtk_epatch *)cfg_cb->fw_buf;
     entry = rtk_get_patch_entry(cfg_cb);
@@ -362,6 +371,7 @@ uint16_t rtk_get_v1_final_fw(bt_hw_cfg_cb_t* cfg_cb)
     else
     {
         cfg_cb->dl_fw_flag = 0;
+        return fw_patch_len;
     }
 
     ALOGI("total_len = 0x%x", cfg_cb->total_len);
@@ -379,7 +389,7 @@ uint16_t rtk_get_v1_final_fw(bt_hw_cfg_cb_t* cfg_cb)
         memcpy(&entry->coex_version, cfg_cb->total_buf + entry->patch_length - 12, 4);
         fw_patch_len = entry->patch_length;
 
-        ALOGI("BTCOEX:20%06d-%04x svn_version:%d lmp_subversion:0x%x hci_version:0x%x hci_revision:0x%x chip_type:%d Cut:%d libbt-vendor version:%s, patch->fw_version = %x\n",
+        ALOGI("BTCOEX:20%06d-%04x svn_version:%u lmp_subversion:0x%x hci_version:0x%x hci_revision:0x%x chip_type:%d Cut:%d libbt-vendor version:%s, patch->fw_version = %x\n",
         ((entry->coex_version >> 16) & 0x7ff) + ((entry->coex_version >> 27) * 10000),
         (entry->coex_version & 0xffff), entry->svn_version, cfg_cb->lmp_subversion, cfg_cb->hci_version, cfg_cb->hci_revision, cfg_cb->chip_type, cfg_cb->eversion+1, RTK_VERSION, patch->fw_version);
     }
@@ -404,10 +414,10 @@ uint16_t rtk_get_v1_final_fw(bt_hw_cfg_cb_t* cfg_cb)
 uint8_t rtk_insert_fw_patch_fragment_to_linklist(struct rtk_epatch_fragment *fragment,
         struct rtk_epatch_fragment_linklist **header)
 {
-    struct rtk_epatch_fragment_linklist *p = *header;
+    struct rtk_epatch_fragment_linklist *p ;
     struct rtk_epatch_fragment_linklist *q ;
     struct rtk_epatch_fragment_linklist *tmp;
-    tmp = (struct rtk_epatch_fragment_linklist *)malloc(sizeof(*p));
+    tmp = (struct rtk_epatch_fragment_linklist *)malloc(sizeof(struct rtk_epatch_fragment_linklist));
     //ALOGI("rtk_insert_fw_patch_fragment_to_linklist ");
     if(!tmp)
     {
@@ -427,7 +437,7 @@ uint8_t rtk_insert_fw_patch_fragment_to_linklist(struct rtk_epatch_fragment *fra
         *header = tmp;
         return 0;
     }
-
+    p = *header;
     q = p ->next;
     while(p){
          if(q) {
@@ -460,12 +470,15 @@ uint32_t rtk_get_fw_patch_link_list(bt_hw_cfg_cb_t* cfg_cb,
 
     uint8_t *p, *q, *data;
     uint32_t fw_patch_len = 0;
+    bool to_add = 0;
+    uint32_t sec_sig_cnt = 0;
+    uint8_t key_id = cfg_cb->keyid;
 
     patch = (struct rtk_epatch_v2 *)cfg_cb->fw_buf;
 
-    patch->number_of_section = le16_to_cpu(patch->number_of_section);
+    patch->number_of_section = le32_to_cpu(patch->number_of_section);
 
-    ALOGI("rtk_get_fw_patch_link_list: fw_ver 0x%08x,  fw_ver_sub 0x%08x, patch_num %d",
+    ALOGI("rtk_get_fw_patch_link_list: fw_ver 0x%08x,  fw_ver_sub 0x%08x, number_of_section %d",
         le32_to_cpu(patch->fw_version), le32_to_cpu(patch->fw_version_sub), patch->number_of_section);
 
     p = cfg_cb->fw_buf + 20;
@@ -475,25 +488,54 @@ uint32_t rtk_get_fw_patch_link_list(bt_hw_cfg_cb_t* cfg_cb,
         section = (struct rtk_epatch_section *) p;
         section->opcode = le32_to_cpu(section->opcode);
         section->length = le32_to_cpu(section->length);
+        //q point to rtk_epatch_fragment
+        q = p + 12;
+        // p point to next rtk_epatch_section
+        p = p + 8 + section->length;
+        if(section->length == 0)
+            continue;
+
         section->number_of_fragment = le16_to_cpu(section->number_of_fragment);
         ALOGI("rtk_get_fw_patch_link_list: opcode: %d,  length:%d, number_of_fragment: %d",
            section->opcode, section->length, section->number_of_fragment);
 
-        q = p + 12;
-        p = p + 8 + section->length;
-
         //Traversal patch fragment
         for(j = 0; j < section->number_of_fragment; j++){
-            fragment = (struct rtk_epatch_fragment *) q;
-            fragment->length = le32_to_cpu(fragment->length);
-            ALOGI("rtk_get_fw_patch_link_list: chip_id: %d,  priority:%d, length:  0x%x",
-               fragment->chip_id, fragment->priority, fragment->length);
-
-            if(section->opcode == 2 || fragment->chip_id == chip_id){
+            if(section->opcode != FW_OTA_FLAG){
+                fragment = (struct rtk_epatch_fragment *) q;
+                fragment->length = le32_to_cpu(fragment->length);
+                ALOGI("rtk_get_fw_patch_link_list: chip_id: %d,  priority:%d, length:  0x%x",
+                   fragment->chip_id, fragment->priority, fragment->length);
+            }
+            switch(section->opcode){
+               case FW_PATCH_SNIPPET:
+                    if(fragment->chip_id == chip_id)
+                        to_add = true;
+                    q = q + 8 + fragment->length;
+                    break;
+               case FW_DUMMY_HEADER:
+                    if((fragment->chip_id == chip_id) && (key_id == 0x00 || key_id == 0xff))
+                        to_add = true;
+                    q = q + 8 + fragment->length;
+                    break;
+               case FW_SECURITY_SIGNATURE:
+                    if((fragment->chip_id == chip_id) && (fragment->key_id == key_id) ){
+                        to_add = true;
+                        sec_sig_cnt++;
+                    }
+                    q = q + 8 + fragment->length;
+                    break;
+               case FW_OTA_FLAG:
+                    q = q + sizeof(struct rtk_epatch_ota);
+                    break;
+               default:
+                    break;
+            }
+            if(to_add){
                 res = rtk_insert_fw_patch_fragment_to_linklist(fragment, &link_header);
                 if(res)
                    goto free_linklist;
-
+                to_add = false;
                 fw_patch_len += fragment->length;
                 {
                     data = fragment->data;
@@ -501,11 +543,50 @@ uint32_t rtk_get_fw_patch_link_list(bt_hw_cfg_cb_t* cfg_cb,
                        *(data), *(data+1), *(data+2), *(data+3), *(data+4), *(data+5), *(data+6), *(data+7));
                 }
             }
-
-            q = q + 8 + fragment->length;
       }
-
     }
+
+    if( (key_id != 0x00) && (key_id != 0xff) && (sec_sig_cnt == 0)){
+       p = cfg_cb->fw_buf + 20;
+       for(i = 0; i < patch->number_of_section; i++)
+       {
+           section = (struct rtk_epatch_section *) p;
+           section->opcode = le32_to_cpu(section->opcode);
+           section->length = le32_to_cpu(section->length);
+
+           q = p + 12;
+           p = p + 8 + section->length;
+           if(section->length == 0)
+               continue;
+
+           section->number_of_fragment = le16_to_cpu(section->number_of_fragment);
+           ALOGI("rtk_get_fw_patch_link_list 2: opcode: %d,  length:%d, number_of_fragment: %d",
+              section->opcode, section->length, section->number_of_fragment);
+           //Traversal patch fragment
+           if(section->opcode == FW_DUMMY_HEADER){
+               for(j = 0; j < section->number_of_fragment; j++){
+                   fragment = (struct rtk_epatch_fragment *) q;
+                   fragment->length = le32_to_cpu(fragment->length);
+                   ALOGI("rtk_get_fw_patch_link_list: chip_id: %d, priority:%d, length:  0x%x",
+                       fragment->chip_id, fragment->priority, fragment->length);
+
+                   if(fragment->chip_id == chip_id){
+                       res = rtk_insert_fw_patch_fragment_to_linklist(fragment, &link_header);
+                   if(res)
+                       goto free_linklist;
+                   to_add = false;
+                   fw_patch_len += fragment->length;
+                   {
+                       data = fragment->data;
+                       ALOGI("fragment->data  %02x %02x %02x %02x %02x %02x %02x %02x",
+                          *(data), *(data+1), *(data+2), *(data+3), *(data+4), *(data+5), *(data+6), *(data+7));
+                   }
+            }
+            q = q + 8 + fragment->length;
+           }
+        }
+    }
+  }
 
     *linklist = link_header;
     return fw_patch_len;
@@ -524,7 +605,7 @@ free_linklist:
 uint32_t rtk_get_v2_final_fw(bt_hw_cfg_cb_t* cfg_cb)
 {
     uint8_t *p, *data;
-    uint32_t fw_patch_len = -1;
+    uint32_t fw_patch_len = 0;
     uint32_t fw_version, svn_version, coex_version;
     uint16_t chip_id = cfg_cb->eversion + 1;
     struct rtk_epatch_fragment_linklist *fw_patch_link = NULL;
@@ -538,6 +619,7 @@ uint32_t rtk_get_v2_final_fw(bt_hw_cfg_cb_t* cfg_cb)
     else
     {
         cfg_cb->dl_fw_flag = 0;
+        return fw_patch_len;
     }
 
     ALOGI("fw_patch_len = 0x%x, total_len = 0x%x", fw_patch_len, cfg_cb->total_len);
@@ -546,7 +628,7 @@ uint32_t rtk_get_v2_final_fw(bt_hw_cfg_cb_t* cfg_cb)
     {
         ALOGE("Can't alloc memory for multi fw&config, errno:%d", errno);
         cfg_cb->dl_fw_flag = 0;
-        fw_patch_len = -1;
+        fw_patch_len = 0;
     }
     else
     {
@@ -598,7 +680,7 @@ uint32_t rtk_get_v2_final_fw(bt_hw_cfg_cb_t* cfg_cb)
     memcpy(&coex_version, cfg_cb->total_buf + fw_patch_len - 12, 4);
     cfg_cb->lmp_sub_current = (uint16_t)fw_version;
 
-    ALOGI("BTCOEX:20%06d-%04x svn_version:%d lmp_subversion:0x%x hci_version:0x%x hci_revision:0x%x chip_type:%d Cut:%d libbt-vendor version:%s, patch->fw_version = %x\n",
+    ALOGI("BTCOEX:20%06d-%04x svn_version:%u lmp_subversion:0x%x hci_version:0x%x hci_revision:0x%x chip_type:%d Cut:%d libbt-vendor version:%s, patch->fw_version = %x\n",
     ((coex_version >> 16) & 0x7ff) + ((coex_version >> 27) * 10000),
     (coex_version & 0xffff), svn_version, cfg_cb->lmp_subversion, cfg_cb->hci_version, cfg_cb->hci_revision, cfg_cb->chip_type, cfg_cb->eversion+1, RTK_VERSION, fw_version);
 

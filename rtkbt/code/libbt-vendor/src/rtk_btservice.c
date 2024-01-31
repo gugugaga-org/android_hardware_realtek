@@ -337,8 +337,9 @@ static void Rtk_Client_Cmd_Cback(void *p_mem)
 void Rtk_Service_Vendorcmd_Hook(Rtk_Service_Data *RtkData, int client_sock)
 {
     Rtkqueuedata* rtkqueue_data = NULL;
+    if(!rtk_btservice) return;
     pthread_mutex_lock(&rtk_btservice->cmdqueue_mutex);
-    if(!rtk_btservice || (rtk_btservice->cmdqueue_thread_running == 0)){
+    if(rtk_btservice->cmdqueue_thread_running == 0){
         ALOGE("rtkbt service is null or cmdqueue stop");
         pthread_mutex_unlock(&rtk_btservice->cmdqueue_mutex);
         return;

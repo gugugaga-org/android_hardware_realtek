@@ -99,6 +99,9 @@
 #endif
 #endif // (BT_WAKE_VIA_USERIAL_IOCTL==TRUE)
 
+
+#define MSG_HC_TO_STACK_HCI_ISO 0x1700      /* eq. BT_EVT_TO_BTU_HCI_ISO */
+#define MSG_STACK_TO_HC_HCI_ISO 0x2d00 /* eq. BT_EVT_TO_LM_HCI_ISO */
 /******************************************************************************
 **  Type definitions
 ******************************************************************************/

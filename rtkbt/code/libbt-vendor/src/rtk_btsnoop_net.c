@@ -36,7 +36,15 @@
 #define HCI_ACLDATA_PKT         0x02
 #define HCI_SCODATA_PKT         0x03
 #define HCI_EVENT_PKT           0x04
+#define HCI_ISODATA_PKT         0x05
 #define FW_LOG_PATH         "/data/misc/bluedroid/firmware_log_rtk"
+
+#ifndef MSG_HC_TO_STACK_HCI_ISO
+#define MSG_HC_TO_STACK_HCI_ISO 0x1700      /* eq. BT_EVT_TO_BTU_HCI_ISO */
+#endif
+#ifndef MSG_STACK_TO_HC_HCI_ISO
+#define MSG_STACK_TO_HC_HCI_ISO 0x2d00 /* eq. BT_EVT_TO_LM_HCI_ISO */
+#endif
 
 unsigned int rtkbt_h5logfilter = 0x01;
 bool rtk_btsnoop_dump = false;
@@ -95,8 +103,8 @@ void rtk_btsnoop_open()
     if(rtk_btsnoop_save_log) {
         time_t current_time = time(NULL);
         struct tm* time_created = localtime(&current_time);
-        char config_time_created[sizeof("YYYY-MM-DD-HH:MM:SS")];
-        strftime(config_time_created, sizeof("YYYY-MM-DD-HH:MM:SS"), "%Y-%m-%d-%H:%M:%S",
+        char config_time_created[sizeof("YYYY-MM-DD-HH-MM-SS")];
+        strftime(config_time_created, sizeof("YYYY-MM-DD-HH-MM-SS"), "%Y-%m-%d-%H-%M-%S",
              time_created);
         timestamp = rtk_btsnoop_timestamp() - BTSNOOP_EPOCH_DELTA;
         usec = (uint32_t)(timestamp % 1000000LL);
@@ -137,7 +145,7 @@ static void rtk_btsnoop_write(const void *data, size_t length) {
 static void rtk_btsnoop_write_packet(serial_data_type_t type, const uint8_t *packet, bool is_received) {
     int length_he = 0;
     int length;
-    int flags;
+    int flags = 0;
     int drops = 0;
     pthread_mutex_lock(&btsnoop_log_lock);
     switch (type) {
@@ -156,6 +164,10 @@ static void rtk_btsnoop_write_packet(serial_data_type_t type, const uint8_t *pac
     case HCI_EVENT_PKT:
         length_he = packet[1] + 3;
         flags = 3;
+    break;
+    case HCI_ISODATA_PKT:
+        length_he = (packet[3] << 8) + packet[2] + 5;
+        flags= is_received;
     break;
     default:
         break;
@@ -205,6 +217,10 @@ void rtk_btsnoop_capture(const HC_BT_HDR *p_buf, bool is_rcvd) {
     case MSG_STACK_TO_HC_HCI_CMD:
       if(((rtkbt_h5logfilter & 1) == 0) || (*p != 0x94) || (*(p + 1) != 0xfc))
       rtk_btsnoop_write_packet(HCI_COMMAND_PKT, p, true);
+      break;
+    case MSG_HC_TO_STACK_HCI_ISO:
+    case MSG_STACK_TO_HC_HCI_ISO:
+      rtk_btsnoop_write_packet(HCI_ISODATA_PKT, p, is_rcvd);
       break;
   }
 }
@@ -388,14 +404,14 @@ static void rtk_safe_close_(int *fd) {
   }
 }
 int hci_open_firmware_log_file_rtk(uint8_t seg) {
-	static char config_time_created[sizeof("YYYY-MM-DD-HH:MM:SS")];
+	static char config_time_created[sizeof("YYYY-MM-DD-HH-MM-SS")];
   char name[PATH_MAX];
   memset(name,0,PATH_MAX);
 	if(seg == 0){
 		ALOGE("%s this is first segment!!", __func__);
 		time_t current_time = time(NULL);
 		struct tm* time_created = localtime(&current_time);
-		strftime(config_time_created, sizeof("YYYY-MM-DD-HH:MM:SS"), "%Y-%m-%d-%H:%M:%S",time_created);
+		strftime(config_time_created, sizeof("YYYY-MM-DD-HH-MM-SS"), "%Y-%m-%d-%H-%M-%S",time_created);
 	}
 	snprintf(name, PATH_MAX, "%s.%s_%d", FW_LOG_PATH, config_time_created,seg);
   ALOGE("%s begin to open %s", __func__,name);

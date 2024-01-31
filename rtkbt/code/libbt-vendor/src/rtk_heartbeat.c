@@ -16,7 +16,7 @@
  *
  ******************************************************************************/
 #define LOG_TAG "rtk_heartbeat"
-#define RTKBT_RELEASE_NAME "20201130_BT_ANDROID_11.0"
+#define RTKBT_RELEASE_NAME "20201130_BT_ANDROID_12.0"
 
 #include <utils/Log.h>
 #include <sys/types.h>
@@ -55,12 +55,14 @@
 #define HCI_EVT_HEARTBEAT_STATUS_OFFSET          (5)
 #define HCI_EVT_HEARTBEAT_SEQNUM_OFFSET_L          (6)
 #define HCI_EVT_HEARTBEAT_SEQNUM_OFFSET_H          (7)
+#define RTK_HANDLE_EVENT
 
 static const uint32_t DEFALUT_HEARTBEAT_TIMEOUT_MS = 1000; //send a per sercond
 int heartBeatLog = -1;
 static int heartBeatTimeout= -1;
 static bool heartbeatFlag = false;
 static int heartbeatCount= 0;
+volatile uint32_t heartbeatCmdCount= 0;
 static uint16_t nextSeqNum= 1;
 static uint16_t cleanupFlag = 0;
 static pthread_mutex_t heartbeat_mutex;
@@ -75,6 +77,7 @@ typedef struct Rtk_Service_Data
 
 extern void Rtk_Service_Vendorcmd_Hook(Rtk_Service_Data *RtkData, int client_sock);
 extern uint8_t get_heartbeat_from_hardware();
+extern void userial_send_cmd_to_controller(unsigned char * recv_buffer, int total_length);
 
 static char *rtk_trim(char *str) {
     while (isspace(*str))
@@ -154,25 +157,25 @@ static void rtkbt_heartbeat_send_hw_error(uint8_t status, uint16_t seqnum, uint1
     userial_recv_rawdata_hook(p_buf,length);
 }
 
-static void rtkbt_heartbeat_cmpl_cback (void *p_params)
+void rtkbt_heartbeat_cmpl_cback (void *p_params)
 {
     uint8_t  status = 0;
     uint16_t seqnum = 0;
-    HC_BT_HDR *p_evt_buf = NULL;
-    //uint8_t  *p = NULL;
+	uint8_t *pp_params = (uint8_t *)p_params;
 
     if(!heartbeatFlag)
       return;
 
     if(p_params != NULL)
     {
-        p_evt_buf = (HC_BT_HDR *) p_params;
-        status = p_evt_buf->data[HCI_EVT_HEARTBEAT_STATUS_OFFSET];
-        seqnum = p_evt_buf->data[HCI_EVT_HEARTBEAT_SEQNUM_OFFSET_H]<<8 | p_evt_buf->data[HCI_EVT_HEARTBEAT_SEQNUM_OFFSET_L];
+        status = pp_params[HCI_EVT_HEARTBEAT_STATUS_OFFSET];
+        seqnum = pp_params[HCI_EVT_HEARTBEAT_SEQNUM_OFFSET_H]<<8 | pp_params[HCI_EVT_HEARTBEAT_SEQNUM_OFFSET_L];
     }
-
-    if(status == 0 && seqnum == nextSeqNum)
+    ALOGI("rtkbt_heartbeat_cmpl_cback: @bbb Current SeqNum = %d,should SeqNum=%d, status = %d", seqnum, nextSeqNum, status);
+    if(status == 0 &&( seqnum >= nextSeqNum  && seqnum <= heartbeatCmdCount))
     {
+        if(seqnum == 1)
+           heartbeatCmdCount = 1;
         nextSeqNum = (seqnum + 1);
         pthread_mutex_lock(&heartbeat_mutex);
         heartbeatCount = 0;
@@ -191,9 +194,8 @@ static void rtkbt_heartbeat_cmpl_cback (void *p_params)
 
 static void heartbeat_timed_out()//(union sigval arg)
 {
-    Rtk_Service_Data *p_buf;
     int count;
-
+    uint8_t heartbeat_cmd[4] = {0x01, 0x94, 0xfc, 0x00};
     if(!heartbeatFlag)
       return;
     pthread_mutex_lock(&heartbeat_mutex);
@@ -219,19 +221,11 @@ static void heartbeat_timed_out()//(union sigval arg)
     pthread_mutex_unlock(&heartbeat_mutex);
     if(heartbeatFlag)
     {
-        p_buf = (Rtk_Service_Data *)malloc(sizeof(Rtk_Service_Data));
-        if (NULL == p_buf)
-        {
-            ALOGE("p_buf: allocate error");
-            return;
-        }
-        p_buf->opcode = HCI_CMD_VNDR_HEARTBEAT;
-        p_buf->parameter = NULL;
-        p_buf->parameter_len = 0;
-        p_buf->complete_cback = rtkbt_heartbeat_cmpl_cback;
 
-        Rtk_Service_Vendorcmd_Hook(p_buf, -1);
-        free(p_buf);
+        heartbeatCmdCount++;
+        ALOGE("heartbeat_timed_out: @bbb heartbeatCmdCount = %d, expected nextSeqNum = %d", heartbeatCmdCount, nextSeqNum);
+        userial_send_cmd_to_controller(heartbeat_cmd, 4);
+
         poll_timer_flush();
     }
 }
@@ -239,8 +233,7 @@ static void heartbeat_timed_out()//(union sigval arg)
 
 static void rtkbt_heartbeat_beginTimer_func(void)
 {
-    Rtk_Service_Data *p_buf;
-
+    uint8_t heartbeat_cmd[4] = {0x01, 0x94, 0xfc, 0x00};
     if((heartBeatTimeout != -1) && (heartBeatLog != -1))
     {
         poll_init(heartbeat_timed_out,heartBeatTimeout);
@@ -252,19 +245,8 @@ static void rtkbt_heartbeat_beginTimer_func(void)
     }
     poll_enable(TRUE);
 
-    p_buf = (Rtk_Service_Data *)malloc(sizeof(Rtk_Service_Data));
-    if (NULL == p_buf)
-    {
-        ALOGE("p_buf: allocate error");
-        return;
-    }
-    p_buf->opcode = HCI_CMD_VNDR_HEARTBEAT;
-    p_buf->parameter = NULL;
-    p_buf->parameter_len = 0;
-    p_buf->complete_cback = rtkbt_heartbeat_cmpl_cback;
-
-    Rtk_Service_Vendorcmd_Hook(p_buf, -1);
-    free(p_buf);
+    userial_send_cmd_to_controller(heartbeat_cmd, 4);
+    heartbeatCmdCount++;
 
     poll_timer_flush();
 }
@@ -276,6 +258,7 @@ void Heartbeat_cleanup()
     heartbeatFlag = false;
     nextSeqNum = 1;
     heartbeatCount = 0;
+    heartbeatCmdCount = 0;
     cleanupFlag = 1;
     poll_enable(FALSE);
     poll_cleanup();

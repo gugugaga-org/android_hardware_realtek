@@ -1,4 +1,4 @@
-# RELEASE NAME: 20220111_BT_ANDROID_11.0
+# RELEASE NAME: 20230424_BT_ANDROID_12.0
 # RTKBT_API_VERSION=2.1.1.0
 
 CUR_PATH := hardware/realtek/rtkbt
@@ -41,7 +41,9 @@ PRODUCT_COPY_FILES += \
     $(CUR_PATH)/Firmware/BT/rtl8822c_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822c_config \
     $(CUR_PATH)/Firmware/BT/rtl8822c_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822c_fw \
     $(CUR_PATH)/Firmware/BT/rtl8852bu_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8852bu_config \
-    $(CUR_PATH)/Firmware/BT/rtl8852bu_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8852bu_fw
+    $(CUR_PATH)/Firmware/BT/rtl8852bu_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8852bu_fw \
+    $(CUR_PATH)/Firmware/BT/rtl8852cu_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8852cu_config \
+    $(CUR_PATH)/Firmware/BT/rtl8852cu_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8852cu_fw
 endif
 
 # base bluetooth

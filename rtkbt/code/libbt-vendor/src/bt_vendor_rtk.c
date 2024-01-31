@@ -26,7 +26,7 @@
 
 #undef NDEBUG
 #define LOG_TAG "libbt_vendor"
-#define RTKBT_RELEASE_NAME "20220111_BT_ANDROID_11.0"
+#define RTKBT_RELEASE_NAME "20230424_BT_ANDROID_12.0"
 #include <utils/Log.h>
 #include "bt_vendor_rtk.h"
 #include "upio.h"
@@ -262,6 +262,7 @@ static void rtkbt_stack_conf_cleanup()
     h5_log_enable = 0;
     rtk_btsnoop_dump = false;
     rtk_btsnoop_net_dump = false;
+    rtkbt_capture_fw_log = false;
 }
 
 static void load_rtkbt_conf()
@@ -459,7 +460,8 @@ static int op(bt_vendor_opcode_t opcode, void *param)
                   retval = userial_vendor_usb_ioctl(GET_USB_INFO, &usb_info);
                   if(retval == -1) {
                     ALOGE("get usb info fail");
-                    bt_vendor_cbacks->fwcfg_cb(BT_VND_OP_RESULT_FAIL);
+                    if(bt_vendor_cbacks)
+                       bt_vendor_cbacks->fwcfg_cb(BT_VND_OP_RESULT_FAIL);
                     return retval;
                   }
                   else

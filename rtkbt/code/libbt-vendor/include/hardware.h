@@ -40,9 +40,11 @@
 #define MAX_PATCH_SIZE_24K            (1024*24 + 529)   //24K
 #define MAX_PATCH_SIZE_25K            (1024*25 + 529)   //25K for rtl8822b
 #define MAX_PATCH_SIZE_40K            (1024*40 + 529)   //40K
-#define MAX_PATCH_SIZE_49_2K          (0xC4Cf + 529)   //49.2K 8723f
+#define MAX_PATCH_SIZE_49_2K          (0xC4CF + 529)   //49.2K 8723f
 #define MAX_PATCH_SIZE_69_2K          (0x114D0 + 529)  //69.2K 8852a
 #define MAX_PATCH_SIZE_65_2K          (0x104D0 + 529)   //65.2K 8852b
+#define MAX_PATCH_SIZE_78K            (1024*78 + 529)   //78K  8852c
+#define MAX_PATCH_SIZE_145K           (0x24620)        //145K 8822E
 
 #define MAX_ORG_CONFIG_SIZE     (0x100*14)
 #define MAX_ALT_CONFIG_SIZE     (0x100*2)
@@ -97,12 +99,15 @@ struct rtk_bt_vendor_config{
 #define HCI_EVT_CMD_CMPL_OP1009_BDADDR_OFFSET    (6)     //BD_ADDR's offset in COMMAND Completed Event for OpCode 0x1009(Read BD_ADDR Command)
 #define HCI_EVT_CMD_CMPL_OPFC6D_EVERSION_OFFSET        (6)  //eversion's offset in COMMAND Completed Event for OpCode 0xfc6d(Read eVERSION Vendor Command)
 #define HCI_EVT_CMD_CMPL_OPFC61_CHIPTYPE_OFFSET        (6)  //chip type's offset in COMMAND Completed Event for OpCode 0xfc61(Read ChipType Vendor Command)
+#define HCI_EVT_CMD_CMPL_OPFC61_KEY_ID_OFFSET          (6)  //chip type's offset in COMMAND Completed Event for OpCode 0xfc61(Read KeyID Vendor Command)
 #define HCI_EVT_CMD_CMPL_OPFC61_8761_CHIPTYPE_OFFSET   (8)  //8761B chip type's offset in COMMAND Completed Event for OpCode 0xfc61(Read ChipType Vendor Command)
 #define HCI_EVT_CMD_CMPL_OPFC61_CHIPDIE_OFFSET         (7)  //chip die's offset in COMMAND Completed Event for OpCode 0xfc61(Read ChipType Vendor Command)
 
 //#define UPDATE_BAUDRATE_CMD_PARAM_SIZE          (6)
 #define HCI_CMD_PREAMBLE_SIZE                   (3)
 #define HCI_CMD_READ_CHIP_TYPE_SIZE             (5)
+#define HCI_CMD_READ_CHIP_KEY_ID_SIZE           (5)
+
 //#define HCD_REC_PAYLOAD_LEN_BYTE                (2)
 //#define BD_ADDR_LEN                             (6)
 //#define LOCAL_NAME_BUFFER_LEN                   (32)
@@ -130,7 +135,11 @@ enum {
     HW_CFG_RESET_CHANNEL_CONTROLLER,
     HW_RESET_CONTROLLER,
     HARDWARE_INIT_COMPLETE,
-    HW_CFG_DL_FW_PATCH
+    HW_CFG_DL_FW_PATCH,
+    HW_CFG_READ_KEY_ID,
+    HW_CFG_READ_FC61_LMP_SUB,//8822e initialize
+    HW_CFG_READ_FC61_HCI_SUB,
+    HW_CFG_READ_LMP
 };
 
 /* h/w config control block */
@@ -154,8 +163,8 @@ typedef struct
     uint8_t     *fw_buf;         /* FW patch file buf */
     uint8_t     *config_buf;     /* Config patch file buf */
     uint8_t     *total_buf;      /* FW & config extracted buf */
-    uint8_t     patch_frag_cnt;  /* Patch fragment count download */
-    uint8_t     patch_frag_idx;  /* Current patch fragment index */
+    uint16_t     patch_frag_cnt;  /* Patch fragment count download */
+    uint16_t     patch_frag_idx;  /* Current patch fragment index */
     uint8_t     patch_frag_len;  /* Patch fragment length */
     uint8_t     patch_frag_tail; /* Last patch fragment length */
     uint8_t     hw_flow_cntrl;   /* Uart flow control, bit7:set, bit0:enable */
@@ -163,6 +172,7 @@ typedef struct
     uint16_t    pid;   /* usb product id */
     uint8_t     heartbeat; /*heartbeat*/
     uint8_t     parsing_rule; /* fw merge rule 1: v1, 2: v2 */
+    uint8_t     keyid; /*  */
 } bt_hw_cfg_cb_t;
 
 /* low power mode parameters */
@@ -207,7 +217,9 @@ typedef struct
 #define ROM_LMP_8851a               0x8852
 #define ROM_LMP_8852bp              0x8852
 #define ROM_LMP_8851b               0x8851
+#define ROM_LMP_8822e               0x8822
 
+#define HCI_VERSION_5_3             0x000C
 #define HCI_VERSION_5_2             0x000B
 #define HCI_VERSION_5_1             0x000A
 #define HCI_VERSION_5_0             0x0009
@@ -231,11 +243,17 @@ struct rtk_epatch{
     struct rtk_epatch_entry entry[0];
 } __attribute__ ((packed));
 
+struct rtk_epatch_ota{
+    uint8_t chip_id;
+    uint8_t enable;
+    uint16_t reserve;
+} __attribute__ ((packed));
 
 struct rtk_epatch_fragment{
     uint8_t chip_id;
     uint8_t priority;
-    uint16_t reserve;
+    uint8_t key_id;
+    uint8_t reserve;
     uint32_t length;
     uint8_t  data[0];
 } __attribute__ ((packed));
@@ -252,7 +270,7 @@ struct rtk_epatch_v2{
     uint8_t signature[8];
     uint32_t fw_version;
     uint32_t fw_version_sub;
-    uint16_t number_of_section;
+    uint32_t number_of_section;
     struct rtk_epatch_section section[0];
 } __attribute__ ((packed));
 

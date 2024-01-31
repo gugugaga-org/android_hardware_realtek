@@ -72,6 +72,7 @@ unsigned char indices0[] = {0xad, 0x0, 0x0, 0xc5, 0x0, 0x0, 0x0, 0x0, 0x77, 0x6d
 #ifdef VENDOR_MESH_RTK
 volatile uint16_t scan_flag = 0;
 #endif
+uint16_t iso_min_conn_handle = 0x1b;
 /******************************************************************************
 **  Extern functions
 ******************************************************************************/
@@ -80,6 +81,8 @@ extern bool rtkbt_capture_fw_log;
 extern void Heartbeat_cleanup();
 extern void Heartbeat_init();
 extern int RTK_btservice_init();
+extern void rtkbt_heartbeat_cmpl_cback (void *p_params);
+
 #ifdef VENDOR_MESH_RTK
 extern void rtk_btservice_internal_event_intercept(uint8_t *p_full_msg, uint8_t *p_msg);
 #endif
@@ -88,12 +91,14 @@ extern tUSERIAL_CFG userial_H45_cfg;
 static int rtk_find_uuid_in_adv(uint8_t * p, uint32_t len, uint8_t * p_uuid);
 
 extern bool is_fw_log;
+extern bool rtkbt_capture_fw_log;
 const int  INVALID_FD  = -1;
 int hci_firmware_log_fd = INVALID_FD;
 
 uint16_t fw_event_count = 0;
 uint8_t segment = 0;
 uint16_t fw_event_block = 0xFFFD;
+pthread_mutex_t write_mutex;
 
 /******************************************************************************
 **  Local type definitions
@@ -198,12 +203,8 @@ static int coex_resvered_length = 0;
 static int received_packet_state = RTKBT_PACKET_IDLE;
 static unsigned int received_packet_bytes_need = 0;
 static serial_data_type_t recv_packet_current_type = 0;
-#ifdef VENDOR_MESH_RTK
 static unsigned char received_resvered_data[2048] = {0};
 static unsigned char* received_resvered_header = NULL;
-#else
-static unsigned char received_resvered_header[2048] = {0};
-#endif
 static int received_resvered_length = 0;
 static rtkbt_version_t rtkbt_version;
 static rtkbt_lescn_t  rtkbt_adv_con;
@@ -221,7 +222,8 @@ static const uint8_t hci_preamble_sizes[] = {
     COMMAND_PREAMBLE_SIZE,
     ACL_PREAMBLE_SIZE,
     SCO_PREAMBLE_SIZE,
-    EVENT_PREAMBLE_SIZE
+    EVENT_PREAMBLE_SIZE,
+    ISO_PREAMBLE_SIZE
 };
 
 /*****************************************************************************
@@ -789,7 +791,7 @@ void userial_vendor_set_hw_fctrl(uint8_t hw_fctrl)
 static uint16_t h4_int_transmit_data(uint8_t *data, uint16_t total_length) {
     assert(data != NULL);
     assert(total_length > 0);
-
+    pthread_mutex_lock(&write_mutex);
     uint16_t length = total_length;
     uint16_t transmitted_length = 0;
     while (length > 0 && vnd_userial.btdriver_state) {
@@ -809,7 +811,7 @@ static uint16_t h4_int_transmit_data(uint8_t *data, uint16_t total_length) {
             break;
         }
     }
-
+    pthread_mutex_unlock(&write_mutex);
 done:;
     return transmitted_length;
 }
@@ -839,7 +841,7 @@ static void userial_enqueue_coex_rawdata(unsigned char * buffer, int length, boo
 }
 
 #ifdef RTK_HANDLE_EVENT
-static void userial_send_cmd_to_controller(unsigned char * recv_buffer, int total_length)
+void userial_send_cmd_to_controller(unsigned char * recv_buffer, int total_length)
 {
     if(rtkbt_transtype & RTKBT_TRANS_H4) {
         h4_int_transmit_data(recv_buffer, total_length);
@@ -873,6 +875,16 @@ static void userial_send_sco_to_controller(unsigned char * recv_buffer, int tota
     userial_enqueue_coex_rawdata(recv_buffer, total_length, false);
 }
 
+static void userial_send_iso_to_controller(unsigned char * recv_buffer, int total_length)
+{
+    if(rtkbt_transtype & RTKBT_TRANS_H4) {
+        h4_int_transmit_data(recv_buffer, total_length);
+    }
+    else {
+        h5_int_interface->h5_send_acl_data(DATA_TYPE_ACL, &recv_buffer[1], (total_length - 1));
+    }
+    userial_enqueue_coex_rawdata(recv_buffer, total_length, false);
+}
 
 static int userial_coex_recv_data_handler(unsigned char * recv_buffer, int total_length)
 {
@@ -889,9 +901,14 @@ static int userial_coex_recv_data_handler(unsigned char * recv_buffer, int total
                 type = p_data[0];
                 length--;
                 p_data++;
-                assert((type > DATA_TYPE_COMMAND) && (type <= DATA_TYPE_EVENT));
-                if (type < DATA_TYPE_ACL || type > DATA_TYPE_EVENT) {
-                    ALOGE("%s invalid data type: %d", __func__, type);
+                if((type < DATA_TYPE_START) || (type > DATA_TYPE_END) || (type == DATA_TYPE_COMMAND))
+                {
+                    ALOGE("%s invalid data type: %d, length: %d", __func__, type, length);
+                    if(total_length > 8)
+                        ALOGE("userial_coex_recv_data_handler: %02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x", \
+                        p_data[0],p_data[1],p_data[2],p_data[3], \
+                        p_data[4],p_data[5],p_data[6],p_data[7] );
+                    assert(false);
                     if(!length)
                         return total_length;
 
@@ -910,7 +927,9 @@ static int userial_coex_recv_data_handler(unsigned char * recv_buffer, int total
             else if(coex_current_type == DATA_TYPE_EVENT) {
                 coex_packet_bytes_need = 2;
             }
-            else {
+            else if(coex_current_type == DATA_TYPE_ISO) {
+                coex_packet_bytes_need = 4;
+            }else{
                 coex_packet_bytes_need = 3;
             }
             coex_resvered_length = 0;
@@ -939,7 +958,9 @@ static int userial_coex_recv_data_handler(unsigned char * recv_buffer, int total
              else if(coex_current_type == DATA_TYPE_EVENT){
                 coex_packet_bytes_need = coex_resvered_buffer[1];
             }
-            else {
+            else if(coex_current_type == DATA_TYPE_ISO) {
+                coex_packet_bytes_need = *(uint16_t *)&coex_resvered_buffer[2];
+            }else {
                 coex_packet_bytes_need = coex_resvered_buffer[2];
             }
             //fall through
@@ -991,7 +1012,16 @@ static int userial_coex_recv_data_handler(unsigned char * recv_buffer, int total
                 case DATA_TYPE_SCO:
                     p_buf->event = MSG_HC_TO_STACK_HCI_SCO;
                 break;
-
+                case DATA_TYPE_ISO:
+                    p_buf->event = MSG_HC_TO_STACK_HCI_ISO;
+                    handle =  *(uint16_t *)coex_resvered_buffer;
+                    acl_length = *(uint16_t *)&coex_resvered_buffer[2];
+                    acl_length &= 0x3fff;
+                    l2cap_length = *(uint16_t *)&coex_resvered_buffer[4];
+                    boundary_flag = RTK_GET_BOUNDARY_FLAG(handle);
+                    if(rtk_parse_manager)
+                        rtk_parse_manager->rtk_parse_l2cap_data(coex_resvered_buffer, 0);
+                break;
                 default:
                     p_buf->event = MSG_HC_TO_STACK_HCI_ERR;
                 break;
@@ -1068,6 +1098,9 @@ static void userial_coex_send_data_handler(unsigned char * send_buffer, int tota
 
         case DATA_TYPE_SCO:
             p_buf->event = MSG_STACK_TO_HC_HCI_SCO;
+        break;
+        case DATA_TYPE_ISO:
+            p_buf->event = MSG_STACK_TO_HC_HCI_ISO;
         break;
         default:
             p_buf->event = 0;
@@ -1647,7 +1680,7 @@ socket_close:
 #endif
 
 #ifdef RTK_HANDLE_CMD
-static int userial_handle_cmd(unsigned char * recv_buffer, int total_length)
+static int userial_handle_cmd(unsigned char * recv_buffer, int* total_length)
 {
     RTK_UNUSED(total_length);
     uint16_t opcode = *(uint16_t*)recv_buffer;
@@ -1779,6 +1812,8 @@ static int userial_handle_cmd(unsigned char * recv_buffer, int total_length)
           if(rtk_parse_manager) {
               rtk_parse_manager->rtk_set_bt_on(1);
           }
+          if(rtkbt_transtype & RTKBT_TRANS_USB)
+              rtk_vendor_cmd_to_fw(HCI_VENDOR_READ_ISO_HANDLE_RANGE, 0, NULL, NULL);
           Heartbeat_init();
         break;
 
@@ -1834,6 +1869,18 @@ static int userial_handle_cmd(unsigned char * recv_buffer, int total_length)
               userial_send_cmd_to_controller(disable_adv_cmd, 5);
           }
         break;
+        case HCI_CONTROLLER_DEBUG_INFO_OCF://transfer CONTROLLER_DEBUG_INFO to VENDOR_SET_LOG_ENABLE
+        {
+            uint8_t *p = recv_buffer;
+            UINT16_TO_STREAM(p,HCI_VENDOR_SET_LOG_ENABLE_OCF);
+            *(p)++ = 0x04;//len
+            *(p)++ = 0x02;//VENDOR_LOG_PACKET_TYPE_EVENT_FOR_ANDROID 2
+            *(p)++ = 0x00;
+            *(p)++ = 0x00;
+            *p = 0x01;//enable
+            *total_length += 4;
+        }
+        break;
         default:
         break;
     }
@@ -1852,6 +1899,7 @@ static void userial_recv_H4_rawdata(void *context)
     ssize_t bytes_read;
     uint16_t opcode;
     uint16_t transmitted_length = 0;
+    uint16_t handle;
 #ifdef VENDOR_MESH_RTK
     int ret = 0;
 #endif
@@ -1871,9 +1919,9 @@ static void userial_recv_H4_rawdata(void *context)
                     return;
                 }
 
-                if (type < DATA_TYPE_COMMAND || type > DATA_TYPE_SCO) {
+                if ((type < DATA_TYPE_START)||(type > DATA_TYPE_END)||(type == DATA_TYPE_EVENT)) {
                     ALOGE("%s invalid data type: %d", __func__, type);
-                    assert((type >= DATA_TYPE_COMMAND) && (type <= DATA_TYPE_SCO));
+                    assert(false);
                 }
                 else {
                     packet_bytes_need -= bytes_read;
@@ -1910,7 +1958,10 @@ static void userial_recv_H4_rawdata(void *context)
                 packet_bytes_need = *(uint16_t *)&h4_read_buffer[COMMON_DATA_LENGTH_INDEX];
             } else if(current_type == DATA_TYPE_EVENT) {
                 packet_bytes_need = h4_read_buffer[EVENT_DATA_LENGTH_INDEX];
-            } else {
+            } else if(current_type == DATA_TYPE_ISO) {
+                packet_bytes_need = *(uint16_t *)&h4_read_buffer[COMMON_DATA_LENGTH_INDEX];
+                packet_bytes_need &= 0x3fff;
+            } else{
                 packet_bytes_need = h4_read_buffer[COMMON_DATA_LENGTH_INDEX];
             }
             //fall through
@@ -1938,11 +1989,11 @@ static void userial_recv_H4_rawdata(void *context)
                 case DATA_TYPE_COMMAND:
 #ifdef RTK_HANDLE_CMD
 #ifdef VENDOR_MESH_RTK
-                    ret = userial_handle_cmd(&h4_read_buffer[1], h4_read_length);
+                    ret = userial_handle_cmd(&h4_read_buffer[1], &h4_read_length);
                     if(ret > 0)
                         break;
 #else
-                    userial_handle_cmd(&h4_read_buffer[1], h4_read_length);
+                    userial_handle_cmd(&h4_read_buffer[1], &h4_read_length);
 #endif
 #endif
                     if(rtkbt_transtype & RTKBT_TRANS_H4) {
@@ -1982,11 +2033,20 @@ static void userial_recv_H4_rawdata(void *context)
                 break;
 
                 case DATA_TYPE_ACL:
+                    handle = 0xFFF & (h4_read_buffer[1] | h4_read_buffer[2] << 8);
+                    //ALOGI("userial_recv_H4_rawdata handle = 0x%04x", handle);
+                    if(handle >= iso_min_conn_handle){
+                       //ALOGI("userial_send_iso_to_controller");
+                       h4_read_buffer[0] = DATA_TYPE_ISO;
+                    }
                     userial_send_acl_to_controller(h4_read_buffer, (h4_read_length + 1));
                 break;
 
                 case DATA_TYPE_SCO:
                     userial_send_sco_to_controller(h4_read_buffer, (h4_read_length + 1));
+                break;
+                case DATA_TYPE_ISO:
+                    userial_send_iso_to_controller(h4_read_buffer, (h4_read_length + 1));
                 break;
                 default:
                     ALOGE("%s invalid data type: %d", __func__, current_type);
@@ -2014,7 +2074,7 @@ static uint16_t h5_int_transmit_data_cb(serial_data_type_t type, uint8_t *data, 
         ALOGE("%s invalid data type: %d", __func__, type);
         return 0;
     }
-
+    pthread_mutex_lock(&write_mutex);
     uint16_t transmitted_length = 0;
     while (length > 0 && vnd_userial.btdriver_state) {
         ssize_t ret = write(vnd_userial.fd, data + transmitted_length, length);
@@ -2033,7 +2093,7 @@ static uint16_t h5_int_transmit_data_cb(serial_data_type_t type, uint8_t *data, 
             break;
         }
     }
-
+    pthread_mutex_unlock(&write_mutex);
 done:;
     return transmitted_length;
 
@@ -2078,6 +2138,20 @@ static int userial_handle_event(unsigned char * recv_buffer, int total_length)
             if(rtkbt_adv_con.adverting_start &&(p_data[5] == HCI_SUCCESS)) {
                 rtkbt_adv_con.adverting_enable = TRUE;
                 rtkbt_adv_con.adverting_start = FALSE;
+            }
+        }
+        else if(opcode == 0xfc94){
+            rtkbt_heartbeat_cmpl_cback(p_data);
+            return 1;
+        }
+        else if(opcode == HCI_VENDOR_READ_ISO_HANDLE_RANGE){
+            if((p_data[1] == 8) &&(p_data[5] == 0)){
+                iso_min_conn_handle = *((uint16_t*)&p_data[6]);
+                userial_vendor_usb_ioctl(SET_ISO_MIN_HANDLE, &iso_min_conn_handle);
+            }
+        }else if(opcode == HCI_VENDOR_SET_LOG_ENABLE_OCF){
+            if(!rtkbt_capture_fw_log && p_data[5] == 0){
+                *((uint16_t*)&p_data[3])= HCI_CONTROLLER_DEBUG_INFO_OCF;
             }
         }
     }
@@ -2203,6 +2277,17 @@ static int userial_handle_event(unsigned char * recv_buffer, int total_length)
         }
     }
     break;
+    case HCI_VENDOR_SPECIFIC_EVT:{
+        if(p_data[2] == 0x20){
+            return 1;
+        }
+         if(p_data[2] == 0x34){
+            ALOGE("userial_handle_event vendor event 0x34 , expected to restart Bluetooth");
+            userial_send_hw_error();
+         }
+    }
+    break;
+    
     default :
     break;
   }
@@ -2309,9 +2394,7 @@ static int userial_handle_recv_data(unsigned char * recv_buffer, unsigned int to
     unsigned char * p_data = recv_buffer;
     unsigned int length = total_length;
     uint8_t event;
-#ifdef VENDOR_MESH_RTK
     int ret = 0;
-#endif
 
     if(!length){
         ALOGE("%s, length is 0, return immediately", __func__);
@@ -2320,16 +2403,16 @@ static int userial_handle_recv_data(unsigned char * recv_buffer, unsigned int to
     switch (received_packet_state) {
         case RTKBT_PACKET_IDLE:
             received_packet_bytes_need = 1;
-#ifdef VENDOR_MESH_RTK
             received_resvered_header = &received_resvered_data[1];
-#endif
             while(length) {
                 type = p_data[0];
                 length--;
                 p_data++;
-                if (type < DATA_TYPE_ACL || type > DATA_TYPE_EVENT) {
-                    ALOGE("%s invalid data type: %d", __func__, type);
-                    assert((type > DATA_TYPE_COMMAND) && (type <= DATA_TYPE_EVENT));
+
+                if((type < DATA_TYPE_START) || (type > DATA_TYPE_END) || (type == DATA_TYPE_COMMAND))
+                {
+                    ALOGE("%s invalid data type: %d ", __func__, type);
+                    assert(false);
                     if(!length)
                         return total_length;
 
@@ -2338,9 +2421,7 @@ static int userial_handle_recv_data(unsigned char * recv_buffer, unsigned int to
                 break;
             }
             recv_packet_current_type = type;
-#ifdef VENDOR_MESH_RTK
             received_resvered_data[0] = type;
-#endif
             received_packet_state = RTKBT_PACKET_TYPE;
             //fall through
 
@@ -2421,7 +2502,7 @@ static int userial_handle_recv_data(unsigned char * recv_buffer, unsigned int to
                     rtk_btservice_internal_event_intercept(NULL, received_resvered_header);
                     ret = userial_handle_event(received_resvered_header, received_resvered_length);
 #else
-                    userial_handle_event(received_resvered_header, received_resvered_length);
+                    ret = userial_handle_event(received_resvered_header, received_resvered_length);
 #endif
                 break;
 #ifdef CONFIG_SCO_OVER_HCI
@@ -2439,24 +2520,30 @@ static int userial_handle_recv_data(unsigned char * recv_buffer, unsigned int to
 
         break;
     }
-
-#ifdef VENDOR_MESH_RTK
     int send_length = received_resvered_length + 1;
     uint16_t transmitted_length = 0;
-#endif
+
     received_packet_state = RTKBT_PACKET_IDLE;
     received_packet_bytes_need = 0;
     recv_packet_current_type = 0;
     received_resvered_length = 0;
-#ifdef VENDOR_MESH_RTK
     received_resvered_header = NULL;
 
     if(ret > 0) {
         return (total_length - length);
     }
 
+    if((received_resvered_data[0] == DATA_TYPE_ACL) && (*(uint16_t *)&received_resvered_data[3] == 0)) {
+        ALOGE("%s received 0 len ACL data packet, discard", __func__);
+        return (total_length - length);
+    }
+
+    if((received_resvered_data[0] == DATA_TYPE_EVENT) && (received_resvered_data[1] == 0xFF) && (received_resvered_data[2] == 2) && (received_resvered_data[3] == 0x61)) {
+        ALOGE("%s received 0xFF event subev:0x61 success(1) or failed(0) parse fw&config=%d, discard.", __func__,received_resvered_data[4]);
+        return (total_length - length);
+    }
+
     while (send_length > 0) {
-        ssize_t ret;
         RTK_NO_INTR(ret = write(vnd_userial.uart_fd[1], received_resvered_data + transmitted_length, send_length));
         switch (ret) {
         case -1:
@@ -2472,7 +2559,6 @@ static int userial_handle_recv_data(unsigned char * recv_buffer, unsigned int to
             break;
         }
     }
-#endif
 
     return (total_length - length);
 }
@@ -2481,7 +2567,7 @@ static int userial_handle_recv_data(unsigned char * recv_buffer, unsigned int to
 static void h5_data_ready_cb(serial_data_type_t type, unsigned int total_length)
 {
     unsigned char buffer[1028] = {0};
-    int length = 0;
+    unsigned int length = 0;
     length = h5_int_interface->h5_int_read_data(&buffer[1], total_length);
     if(length == -1) {
         ALOGE("%s, error read length", __func__);
@@ -2489,9 +2575,6 @@ static void h5_data_ready_cb(serial_data_type_t type, unsigned int total_length)
     }
     buffer[0] = type;
     length++;
-#ifndef VENDOR_MESH_RTK
-    uint16_t transmitted_length = 0;
-#endif
     unsigned int real_length = length;
 #ifdef RTK_HANDLE_EVENT
     unsigned int read_length = 0;
@@ -2500,28 +2583,6 @@ static void h5_data_ready_cb(serial_data_type_t type, unsigned int total_length)
     }while(vnd_userial.thread_running && read_length < total_length);
 #endif
 
-#ifndef VENDOR_MESH_RTK
-    while (length > 0) {
-        ssize_t ret;
-        if((buffer[0] == 0x02) && (length == 5))
-            goto done;
-        RTK_NO_INTR(ret = write(vnd_userial.uart_fd[1], buffer + transmitted_length, length));
-        switch (ret) {
-        case -1:
-            ALOGE("In %s, error writing to the uart serial port: %s", __func__, strerror(errno));
-            goto done;
-        case 0:
-            // If we wrote nothing, don't loop more because we
-            // can't go to infinity or beyond
-            goto done;
-        default:
-            transmitted_length += ret;
-            length -= ret;
-            break;
-        }
-    }
-done:;
-#endif
     if(real_length)
         userial_enqueue_coex_rawdata(buffer, real_length, true);
     return;
@@ -2531,37 +2592,11 @@ done:;
 // direction CONTROLLER -----> BT HOST
 static void userial_recv_uart_rawdata(unsigned char *buffer, unsigned int total_length)
 {
-#ifndef VENDOR_MESH_RTK
-    unsigned int length = total_length;
-    uint16_t transmitted_length = 0;
-#endif
 #ifdef RTK_HANDLE_EVENT
     unsigned int read_length = 0;
     do {
         read_length += userial_handle_recv_data(buffer + read_length, total_length - read_length);
     }while(read_length < total_length);
-#endif
-#ifndef VENDOR_MESH_RTK
-    while (length > 0 && vnd_userial.thread_running) {
-        ssize_t ret;
-        if((buffer[0] == 0x02) && (length == 5))
-            goto done;
-        RTK_NO_INTR(ret = write(vnd_userial.uart_fd[1], buffer + transmitted_length, length));
-        switch (ret) {
-        case -1:
-            ALOGE("In %s, error writing to the uart serial port: %s", __func__, strerror(errno));
-            goto done;
-        case 0:
-            // If we wrote nothing, don't loop more because we
-            // can't go to infinity or beyond
-            goto done;
-        default:
-            transmitted_length += ret;
-            length -= ret;
-            break;
-        }
-    }
-done:;
 #endif
     if(total_length)
         userial_enqueue_coex_rawdata(buffer, total_length, true);
