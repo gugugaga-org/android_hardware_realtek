@@ -1,44 +1,78 @@
-# RELEASE NAME: 20180702_BT_ANDROID_9.0
+# RELEASE NAME: 20230424_BT_ANDROID_13.0
 # RTKBT_API_VERSION=2.1.1.0
 
 CUR_PATH := hardware/realtek/rtkbt
 
 BOARD_HAVE_BLUETOOTH := true
 BOARD_HAVE_BLUETOOTH_RTK := true
-BOARD_HAVE_BLUETOOTH_RTK_COEX := true
+BOARD_HAVE_BLUETOOTH_RTK_TV := true
 
-ifneq ($(filter atv box, $(strip $(TARGET_BOARD_PLATFORM_PRODUCT))), )
-BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := $(CUR_PATH)/bluetooth
-endif
-ifneq ($(filter rk3328, $(strip $(TARGET_BOARD_PLATFORM))), )
-PRODUCT_COPY_FILES += \
-        $(CUR_PATH)/vendor/etc/bluetooth/rtkbt_S0.conf:vendor/etc/bluetooth/rtkbt.conf
-
+ifeq ($(BOARD_HAVE_BLUETOOTH_RTK_TV), true)
+#Firmware For Tv
+include $(LOCAL_PATH)/Firmware/TV/TV_Firmware.mk
 else
-PRODUCT_COPY_FILES += \
-	$(CUR_PATH)/vendor/etc/bluetooth/rtkbt.conf:vendor/etc/bluetooth/rtkbt.conf
-
+#Firmware For Tablet
+include $(LOCAL_PATH)/Firmware/BT/BT_Firmware.mk
 endif
 
-ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)), tablet)
-BT_FIRMWARE_FILES := $(shell ls $(CUR_PATH)/vendor/firmware)
-PRODUCT_COPY_FILES += \
-	$(foreach file, $(BT_FIRMWARE_FILES), $(CUR_PATH)/vendor/firmware/$(file):$(TARGET_COPY_OUT_VENDOR)/etc/firmware/$(file))
-else
-BT_FIRMWARE_FILES := $(shell ls $(CUR_PATH)/vendor/firmware_box)
-PRODUCT_COPY_FILES += \
-	$(foreach file, $(BT_FIRMWARE_FILES), $(CUR_PATH)/vendor/firmware_box/$(file):$(TARGET_COPY_OUT_VENDOR)/etc/firmware/$(file))
+BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := $(LOCAL_PATH)/bluetooth
+
+PRODUCT_COPY_FILES += $(CUR_PATH)/vendor/etc/bluetooth/rtkbt.conf:vendor/etc/bluetooth/rtkbt.conf
+       $(CUR_PATH)/system/etc/permissions/android.hardware.bluetooth_le.xml:system/etc/permissions/android.hardware.bluetooth_le.xml \
+       $(CUR_PATH)/system/etc/permissions/android.hardware.bluetooth.xml:system/etc/permissions/android.hardware.bluetooth.xml \
+
+ifeq ($(BOARD_HAVE_BLUETOOTH_RTK_TV), true)
+PRODUCT_COPY_FILES += $(CUR_PATH)/vendor/usr/keylayout/Vendor_005d_Product_0001.kl:vendor/usr/keylayout/Vendor_005d_Product_0001.kl
+PRODUCT_COPY_FILES += $(CUR_PATH)/vendor/usr/keylayout/Vendor_005d_Product_0002.kl:vendor/usr/keylayout/Vendor_005d_Product_0002.kl
+PRODUCT_COPY_FILES += $(CUR_PATH)/frameworks/native/data/etc/android.hardware.bluetooth_le.xml:vendor/etc/permissions/android.hardware.bluetooth_le.xml
+PRODUCT_COPY_FILES += $(CUR_PATH)/frameworks/native/data/etc/android.hardware.bluetooth.xml:vendor/etc/permissions/android.hardware.bluetooth.xml
 endif
 
 PRODUCT_PACKAGES += \
-	libbt-vendor-realtek
+    android.hardware.bluetooth@1.1-service \
+    libbt-vendor-realtek \
+
 
 PRODUCT_PROPERTY_OVERRIDES += \
-	persist.bluetooth.btsnooplogmode=disable \
-	persist.bluetooth.btsnooppath=/data/misc/bluetooth/logs/btsnoop_hci.log \
-	persist.bluetooth.btsnoopsize=0xffff \
-	persist.bluetooth.showdeviceswithoutnames=false \
-	vendor.bluetooth.enable_timeout_ms=11000 \
-	vendor.realtek.bluetooth.en=false
+                    persist.vendor.bluetooth.rtkcoex=true \
+                    persist.vendor.rtkbt.bdaddr_path=none \
+                    persist.vendor.bluetooth.prefferedrole=master \
+                    persist.vendor.rtkbtadvdisable=false \
+
+PRODUCT_PROPERTY_OVERRIDES += \
+    bluetooth.profile.a2dp.sink.enabled=false \
+    bluetooth.profile.a2dp.source.enabled=true \
+    bluetooth.profile.avrcp.controller.enabled=false \
+    bluetooth.profile.avrcp.target.enabled=true \
+    bluetooth.profile.bap.broadcast.assist.enabled=false \
+    bluetooth.profile.bap.broadcast.source.enabled=false \
+    bluetooth.profile.bap.unicast.client.enabled=false \
+    bluetooth.profile.bass.client.enabled=false \
+    bluetooth.profile.csip.set_coordinator.enabled=false \
+    bluetooth.profile.gatt.enabled=true \
+    bluetooth.profile.hfp.ag.enabled=true \
+    bluetooth.profile.hfp.hf.enabled=false \
+    bluetooth.profile.hid.device.enabled=true \
+    bluetooth.profile.hid.host.enabled=true \
+    bluetooth.profile.map.client.enabled=false \
+    bluetooth.profile.map.server.enabled=true \
+    bluetooth.profile.opp.enabled=true \
+    bluetooth.profile.pan.nap.enabled=false \
+    bluetooth.profile.pan.panu.enabled=false \
+    bluetooth.profile.pbap.client.enabled=false \
+    bluetooth.profile.pbap.server.enabled=false \
+    bluetooth.profile.sap.server.enabled=false \
+#   bluetooth.profile.asha.central.enabled=false \
+    bluetooth.profile.bas.client.enabled=true \
+    bluetooth.profile.ccp.server.enabled=true \
+    bluetooth.profile.hap.client.enabled=true \
+    bluetooth.profile.mcp.server.enabled=true \
+    bluetooth.profile.vcp.controller.enabled=true
 
 
+PRODUCT_SYSTEM_DEFAULT_PROPERTIES += persist.bluetooth.btsnooplogmode=disable \
+                    persist.bluetooth.btsnooppath=/data/misc/bluetooth/logs/btsnoop_hci.log \
+                    persist.bluetooth.btsnoopsize=0xffff \
+                    persist.bluetooth.showdeviceswithoutnames=false \
+                    vendor.bluetooth.enable_timeout_ms=11000 \
+                    vendor.realtek.bluetooth.en=false

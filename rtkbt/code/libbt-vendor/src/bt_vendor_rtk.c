@@ -26,7 +26,7 @@
 
 #undef NDEBUG
 #define LOG_TAG "libbt_vendor"
-#define RTKBT_RELEASE_NAME "20230720_BT_ANDROID_13.0"
+#define RTKBT_RELEASE_NAME "20230424_BT_ANDROID_13.0"
 #include <utils/Log.h>
 #include "bt_vendor_rtk.h"
 #include "upio.h"
@@ -45,7 +45,7 @@ extern char rtk_btsnoop_path[];
 extern uint8_t coex_log_enable;
 extern rtkbt_cts_info_t rtkbt_cts_info;
 extern void hw_config_start(char transtype);
-extern void hw_usb_config_start(char transtype, uint32_t val);
+extern void hw_usb_config_start(char transtype,uint32_t val);
 extern void hci_close_firmware_log_file(int fd);
 extern int hci_firmware_log_fd;
 #if (HW_END_WITH_HCI_RESET == TRUE)
@@ -56,18 +56,14 @@ void hw_epilog_process(void);
 **  Variables
 ******************************************************************************/
 bt_vendor_callbacks_t *bt_vendor_cbacks = NULL;
-uint8_t vnd_local_bd_addr[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t vnd_local_bd_addr[6]={0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 bool rtkbt_auto_restart = false;
 bool rtkbt_capture_fw_log = false;
-bool rtkbt_apcf_wp_en = false;
-uint8_t rtkbt_apcf_wp_wd[32] = {0};
-uint8_t rtkbt_apcf_wp_wf[32] = {0};
 
 /******************************************************************************
 **  Local type definitions
 ******************************************************************************/
 #define DEVICE_NODE_MAX_LEN     512
-#define PATH_MAX_LEN            100
 #define RTKBT_CONF_FILE         "/vendor/etc/bluetooth/rtkbt.conf"
 #define USB_DEVICE_DIR          "/sys/bus/usb/devices"
 #define DEBUG_SCAN_USB          FALSE
@@ -102,109 +98,78 @@ static const tUSERIAL_CFG userial_H4_cfg =
 /******************************************************************************
 **  Functions
 ******************************************************************************/
-static int Check_Key_Value(char *path, char *key, int value)
-{
+static int Check_Key_Value(char* path,char* key,int value){
     FILE *fp;
-    char newpath[PATH_MAX_LEN];
+    char newpath[100];
     char string_get[6];
     int value_int = 0;
-    memset(newpath, 0, PATH_MAX_LEN);
-    snprintf(newpath, PATH_MAX_LEN, "%s/%s", path, key);
-    if ((fp = fopen(newpath, "r")) != NULL)
-    {
-        memset(string_get, 0, 6);
-        if (fgets(string_get, 5, fp) != NULL)
-            if (DEBUG_SCAN_USB)
-            {
-                ALOGE("string_get %s =%s\n", key, string_get);
-            }
+    memset(newpath,0,100);
+    sprintf(newpath,"%s/%s",path,key);
+    if((fp = fopen(newpath, "r")) != NULL){
+        memset(string_get,0,6);
+        if(fgets(string_get, 5, fp) != NULL)
+            if(DEBUG_SCAN_USB)
+                ALOGE("string_get %s =%s\n",key,string_get);
         fclose(fp);
-        value_int = strtol(string_get, NULL, 16);
-        if (value_int == value)
-        {
+        value_int = strtol(string_get,NULL,16);
+        if(value_int == value)
             return 1;
-        }
     }
     return 0;
 }
 
-static int Scan_Usb_Devices_For_RTK(char *path)
-{
-    char newpath[PATH_MAX_LEN];
-    char subpath[PATH_MAX_LEN];
-    DIR *pdir;
-    DIR *newpdir;
-    struct dirent *ptr;
-    struct dirent *newptr;
+static int Scan_Usb_Devices_For_RTK(char* path){
+    char newpath[100];
+    char subpath[100];
+    DIR * pdir;
+    DIR * newpdir;
+    struct dirent * ptr;
+    struct dirent * newptr;
     struct stat filestat;
     struct stat subfilestat;
-    if (stat(path, &filestat) != 0)
-    {
+    if(stat(path, &filestat) != 0){
         ALOGE("The file or path(%s) can not be get stat!\n", newpath);
         return -1;
     }
-    if ((filestat.st_mode & S_IFDIR) != S_IFDIR)
-    {
+    if((filestat.st_mode & S_IFDIR) != S_IFDIR){
         ALOGE("(%s) is not be a path!\n", path);
         return -1;
     }
-    pdir = opendir(path);
-    if (!pdir)
-    {
-        ALOGE("(%s) open fail: %s", path, strerror(errno));
-        return -1;
-    }
+    pdir =opendir(path);
     /*enter sub direc*/
-    while ((ptr = readdir(pdir)) != NULL)
-    {
-        if (strcmp(ptr->d_name, ".") == 0 || strcmp(ptr->d_name, "..") == 0)
-        {
+    while((ptr = readdir(pdir))!=NULL){
+        if(strcmp(ptr->d_name, ".") == 0 || strcmp(ptr->d_name, "..") == 0)
             continue;
-        }
-        memset(newpath, 0, PATH_MAX_LEN);
-        snprintf(newpath, PATH_MAX_LEN, "%s/%s", path, ptr->d_name);
-        if (DEBUG_SCAN_USB)
-        {
-            ALOGI("The file or path(%s)\n", newpath);
-        }
-        if (stat(newpath, &filestat) != 0)
-        {
+        memset(newpath,0,100);
+        sprintf(newpath,"%s/%s", path,ptr->d_name);
+        if(DEBUG_SCAN_USB)
+            ALOGE("The file or path(%s)\n", newpath);
+        if(stat(newpath, &filestat) != 0){
             ALOGE("The file or path(%s) can not be get stat!\n", newpath);
             continue;
         }
         /* Check if it is path. */
-        if ((filestat.st_mode & S_IFDIR) == S_IFDIR)
-        {
-            if (!Check_Key_Value(newpath, "idVendor", 0x0bda))
-            {
+        if((filestat.st_mode & S_IFDIR) == S_IFDIR){
+            if(!Check_Key_Value(newpath,"idVendor",0x0bda))
                 continue;
-            }
-            newpdir = opendir(newpath);
+            newpdir =opendir(newpath);
             /*read sub directory*/
-            while ((newptr = readdir(newpdir)) != NULL)
-            {
-                if (strcmp(newptr->d_name, ".") == 0 || strcmp(newptr->d_name, "..") == 0)
-                {
+            while((newptr = readdir(newpdir))!=NULL){
+                if(strcmp(newptr->d_name, ".") == 0 || strcmp(newptr->d_name, "..") == 0)
                     continue;
-                }
-                memset(subpath, 0, PATH_MAX_LEN);
-                snprintf(subpath, PATH_MAX_LEN, "%s/%s", newpath, newptr->d_name);
-                if (DEBUG_SCAN_USB)
-                {
-                    ALOGI("The file or path(%s)\n", subpath);
-                }
-                if (stat(subpath, &subfilestat) != 0)
-                {
+                memset(subpath,0,100);
+                sprintf(subpath,"%s/%s", newpath,newptr->d_name);
+                if(DEBUG_SCAN_USB)
+                    ALOGE("The file or path(%s)\n", subpath);
+                if(stat(subpath, &subfilestat) != 0){
                     ALOGE("The file or path(%s) can not be get stat!\n", newpath);
                     continue;
                 }
-                /* Check if it is path. */
-                if ((subfilestat.st_mode & S_IFDIR) == S_IFDIR)
-                {
-                    if (Check_Key_Value(subpath, "bInterfaceClass", 0xe0) && \
-                        Check_Key_Value(subpath, "bInterfaceSubClass", 0x01) && \
-                        Check_Key_Value(subpath, "bInterfaceProtocol", 0x01))
-                    {
+                 /* Check if it is path. */
+                if((subfilestat.st_mode & S_IFDIR) == S_IFDIR){
+                    if(Check_Key_Value(subpath,"bInterfaceClass",0xe0) && \
+                        Check_Key_Value(subpath,"bInterfaceSubClass",0x01) && \
+                        Check_Key_Value(subpath,"bInterfaceProtocol",0x01)){
                         closedir(newpdir);
                         closedir(pdir);
                         return 1;
@@ -217,23 +182,16 @@ static int Scan_Usb_Devices_For_RTK(char *path)
     closedir(pdir);
     return 0;
 }
-static char *rtk_trim(char *str)
-{
+static char *rtk_trim(char *str) {
     while (isspace(*str))
-    {
         ++str;
-    }
 
     if (!*str)
-    {
         return str;
-    }
 
     char *end_str = str + strlen(str) - 1;
     while (end_str > str && isspace(*end_str))
-    {
         --end_str;
-    }
 
     end_str[1] = '\0';
     return str;
@@ -242,93 +200,52 @@ static void load_rtkbt_stack_conf()
 {
     char *split;
     FILE *fp = fopen(RTKBT_CONF_FILE, "rt");
-    if (!fp)
-    {
-        ALOGE("%s unable to open file '%s': %s", __func__, RTKBT_CONF_FILE, strerror(errno));
-        return;
+    if (!fp) {
+      ALOGE("%s unable to open file '%s': %s", __func__, RTKBT_CONF_FILE, strerror(errno));
+      return;
     }
-    int line_num = 0, i = 0;
-    char line[1024], t[200] = {0};
+    int line_num = 0;
+    char line[1024];
     //char value[1024];
-    while (fgets(line, sizeof(line), fp))
-    {
+    while (fgets(line, sizeof(line), fp)) {
         char *line_ptr = rtk_trim(line);
         ++line_num;
 
         // Skip blank and comment lines.
         if (*line_ptr == '\0' || *line_ptr == '#' || *line_ptr == '[')
-        {
-            continue;
-        }
+          continue;
 
         split = strchr(line_ptr, '=');
-        if (!split)
-        {
+        if (!split) {
             ALOGE("%s no key/value separator found on line %d.", __func__, line_num);
             continue;
         }
 
         *split = '\0';
         char *endptr;
-        if (!strcmp(rtk_trim(line_ptr), "RtkbtLogFilter"))
-        {
-            rtkbt_h5logfilter = strtol(rtk_trim(split + 1), &endptr, 0);
+        if(!strcmp(rtk_trim(line_ptr), "RtkbtLogFilter")) {
+            rtkbt_h5logfilter = strtol(rtk_trim(split+1), &endptr, 0);
         }
-        else if (!strcmp(rtk_trim(line_ptr), "H5LogOutput"))
-        {
-            h5_log_enable = strtol(rtk_trim(split + 1), &endptr, 0);
+        else if(!strcmp(rtk_trim(line_ptr), "H5LogOutput")) {
+            h5_log_enable = strtol(rtk_trim(split+1), &endptr, 0);
         }
-        else if (!strcmp(rtk_trim(line_ptr), "RtkBtsnoopNetDump"))
-        {
-            if (!strcmp(rtk_trim(split + 1), "true"))
-            {
+        else if(!strcmp(rtk_trim(line_ptr), "RtkBtsnoopNetDump")) {
+            if(!strcmp(rtk_trim(split+1), "true"))
                 rtk_btsnoop_net_dump = true;
-            }
         }
-        else if (!strcmp(rtk_trim(line_ptr), "BtSnoopFileName"))
-        {
-            snprintf(rtk_btsnoop_path, 1024, "%s_rtk", rtk_trim(split + 1));
+        else if(!strcmp(rtk_trim(line_ptr), "BtSnoopFileName")) {
+            sprintf(rtk_btsnoop_path, "%s_rtk", rtk_trim(split+1));
         }
-        else if (!strcmp(rtk_trim(line_ptr), "BtCoexLogOutput"))
-        {
-            coex_log_enable = strtol(rtk_trim(split + 1), &endptr, 0);
+        else if(!strcmp(rtk_trim(line_ptr), "BtCoexLogOutput")) {
+            coex_log_enable = strtol(rtk_trim(split+1), &endptr, 0);
         }
-        else if (!strcmp(rtk_trim(line_ptr), "RtkBtAutoRestart"))
-        {
-            if (!strcmp(rtk_trim(split + 1), "true"))
-            {
+        else if(!strcmp(rtk_trim(line_ptr), "RtkBtAutoRestart")) {
+            if(!strcmp(rtk_trim(split+1), "true"))
                 rtkbt_auto_restart = true;
-            }
         }
-        else if (!strcmp(rtk_trim(line_ptr), "RtkBtCaptureFwLog"))
-        {
-            if (!strcmp(rtk_trim(split + 1), "true"))
-            {
+        else if(!strcmp(rtk_trim(line_ptr), "RtkBtCaptureFwLog")) {
+            if(!strcmp(rtk_trim(split+1), "true"))
                 rtkbt_capture_fw_log = true;
-            }
-        }
-        else if (!strcmp(rtk_trim(line_ptr), "RtkAPCFWakeUpEn"))
-        {
-            if (!strcmp(rtk_trim(split + 1), "true"))
-            {
-                rtkbt_apcf_wp_en = true;
-            }
-        }
-        else if (!strncmp(rtk_trim(line_ptr), "RtkAPCFWakeUpWaveDur", strlen("RtkAPCFWakeUpWaveDur")))
-        {
-            snprintf(t, 200, "RtkAPCFWakeUpWaveDur%d", i + 1);
-            if (!strncmp(rtk_trim(line_ptr), t, strlen(t)))
-            {
-                rtkbt_apcf_wp_wd[i] = strtol(rtk_trim(split + 1), &endptr, 0);
-            }
-        }
-        else if (!strncmp(rtk_trim(line_ptr), "RtkAPCFWakeUpWaveFre", strlen("RtkAPCFWakeUpWaveFre")))
-        {
-            snprintf(t, 200, "RtkAPCFWakeUpWaveFre%d", i + 1);
-            if (!strncmp(rtk_trim(line_ptr), t, strlen(t)))
-            {
-                rtkbt_apcf_wp_wf[i++] = strtol(rtk_trim(split + 1), &endptr, 0);
-            }
         }
     }
 
@@ -350,103 +267,85 @@ static void load_rtkbt_conf()
     char *split;
     memset(rtkbt_device_node, 0, sizeof(rtkbt_device_node));
     FILE *fp = fopen(RTKBT_CONF_FILE, "rt");
-    if (!fp)
-    {
-        ALOGE("%s unable to open file '%s': %s", __func__, RTKBT_CONF_FILE, strerror(errno));
-        strncpy(rtkbt_device_node, "/dev/rtkbt_dev", DEVICE_NODE_MAX_LEN);
-        return;
+    if (!fp) {
+      ALOGE("%s unable to open file '%s': %s", __func__, RTKBT_CONF_FILE, strerror(errno));
+      strcpy(rtkbt_device_node,"/dev/rtkbt_dev");
+      return;
     }
 
     int line_num = 0;
     char line[1024];
-    while (fgets(line, sizeof(line), fp))
-    {
+    while (fgets(line, sizeof(line), fp)) {
         char *line_ptr = rtk_trim(line);
         ++line_num;
 
         // Skip blank and comment lines.
         if (*line_ptr == '\0' || *line_ptr == '#' || *line_ptr == '[')
-        {
-            continue;
-        }
+          continue;
 
         split = strchr(line_ptr, '=');
-        if (!split)
-        {
-            ALOGE("%s no key/value separator found on line %d.", __func__, line_num);
-            strncpy(rtkbt_device_node, "/dev/rtkbt_dev", DEVICE_NODE_MAX_LEN);
-            fclose(fp);
-            return;
-        }
+        if (!split) {
+        ALOGE("%s no key/value separator found on line %d.", __func__, line_num);
+        strcpy(rtkbt_device_node,"/dev/rtkbt_dev");
+        fclose(fp);
+        return;
+      }
 
-        *split = '\0';
-        if (!strcmp(rtk_trim(line_ptr), "BtDeviceNode"))
-        {
-            strncpy(rtkbt_device_node, rtk_trim(split + 1), DEVICE_NODE_MAX_LEN);
-        }
+      *split = '\0';
+      if(!strcmp(rtk_trim(line_ptr), "BtDeviceNode")) {
+        strcpy(rtkbt_device_node, rtk_trim(split + 1));
+      }
     }
 
     fclose(fp);
 
     rtkbt_transtype = 0;
-    if (rtkbt_device_node[0] == '?')
-    {
+    if(rtkbt_device_node[0]=='?'){
         /*1.Scan_Usb_Device*/
-        if (Scan_Usb_Devices_For_RTK(USB_DEVICE_DIR) == 0x01)
-        {
-            strncpy(rtkbt_device_node, "/dev/rtkbt_dev", DEVICE_NODE_MAX_LEN);
+        if(Scan_Usb_Devices_For_RTK(USB_DEVICE_DIR) == 0x01) {
+            strcpy(rtkbt_device_node,"/dev/rtkbt_dev");
         }
-        else
-        {
+        else{
             int i = 0;
-            while (rtkbt_device_node[i] != '\0')
-            {
-                rtkbt_device_node[i] = rtkbt_device_node[i + 1];
+            while(rtkbt_device_node[i] != '\0'){
+                rtkbt_device_node[i] = rtkbt_device_node[i+1];
                 i++;
             }
         }
     }
 
-    if ((split = strchr(rtkbt_device_node, ':')) != NULL)
-    {
+    if((split = strchr(rtkbt_device_node, ':')) != NULL) {
         *split = '\0';
-        if (!strcmp(rtk_trim(split + 1), "H5"))
-        {
+        if(!strcmp(rtk_trim(split + 1), "H5")) {
             rtkbt_transtype |= RTKBT_TRANS_H5;
         }
-        else if (!strcmp(rtk_trim(split + 1), "H4"))
-        {
+        else if(!strcmp(rtk_trim(split + 1), "H4")) {
             rtkbt_transtype |= RTKBT_TRANS_H4;
         }
-        else if (!strcmp(rtk_trim(split + 1), "H45"))
-        {
+        else if(!strcmp(rtk_trim(split + 1), "H45")){
             rtkbt_transtype |= RTKBT_TRANS_H45;
         }
     }
-    else if (strcmp(rtkbt_device_node, "/dev/rtkbt_dev"))
-    {
+    else if(strcmp(rtkbt_device_node, "/dev/rtkbt_dev")) {
         //default use h5
         rtkbt_transtype |= RTKBT_TRANS_H5;
     }
 
-    if (strcmp(rtkbt_device_node, "/dev/rtkbt_dev"))
-    {
+    if(strcmp(rtkbt_device_node, "/dev/rtkbt_dev")) {
         rtkbt_transtype |= RTKBT_TRANS_UART;
     }
-    else
-    {
+    else {
         rtkbt_transtype |= RTKBT_TRANS_USB;
         rtkbt_transtype |= RTKBT_TRANS_H4;
     }
 }
 
-static void byte_reverse(unsigned char *data, int len)
+static void byte_reverse(unsigned char* data, int len)
 {
     int i;
     int tmp;
 
-    for (i = 0; i < len / 2; i++)
-    {
+    for(i = 0; i < len/2; i++) {
         tmp = len - i - 1;
         data[i] ^= data[tmp];
         data[tmp] ^= data[i];
@@ -460,12 +359,12 @@ static void byte_reverse(unsigned char *data, int len)
 **
 *****************************************************************************/
 
-static int init(const bt_vendor_callbacks_t *p_cb, unsigned char *local_bdaddr)
+static int init(const bt_vendor_callbacks_t* p_cb, unsigned char *local_bdaddr)
 {
-    ALOGI("RTKBT_RELEASE_NAME: %s", RTKBT_RELEASE_NAME);
+    ALOGI("RTKBT_RELEASE_NAME: %s",RTKBT_RELEASE_NAME);
     ALOGI("init");
 
-    char value[100] = {0};
+    char value[100];
     load_rtkbt_conf();
     load_rtkbt_stack_conf();
     if (p_cb == NULL)
@@ -476,14 +375,11 @@ static int init(const bt_vendor_callbacks_t *p_cb, unsigned char *local_bdaddr)
 
     userial_vendor_init(rtkbt_device_node);
 
-#if 0
-    if (rtkbt_transtype & RTKBT_TRANS_UART)
-    {
+    if(rtkbt_transtype & RTKBT_TRANS_UART) {
         upio_init();
-        ALOGI("bt_wake_up_host_mode_set(1)");
+        ALOGE("bt_wake_up_host_mode_set(1)");
         bt_wake_up_host_mode_set(1);
     }
-#endif
 
     /* store reference to user callbacks */
     bt_vendor_cbacks = (bt_vendor_callbacks_t *) p_cb;
@@ -493,33 +389,26 @@ static int init(const bt_vendor_callbacks_t *p_cb, unsigned char *local_bdaddr)
     byte_reverse(vnd_local_bd_addr, 6);
 
     property_get("persist.vendor.btsnoop.enable", value, "false");
-    if (strncmp(value, "true", 4) == 0)
-    {
+    if(strncmp(value, "true", 4) == 0) {
         rtk_btsnoop_dump = true;
     }
 
     property_get("persist.vendor.btsnoopsavelog", value, "false");
-    if (strncmp(value, "true", 4) == 0)
-    {
+    if(strncmp(value, "true", 4) == 0) {
         rtk_btsnoop_save_log = true;
     }
 
-    property_get("vendor.realtek.bluetooth.en", value, "false");
-    memset(rtkbt_cts_info.addr, 0xff, 6);
-    if (strncmp(value, "true", 4) == 0)
-    {
+    property_get("vendor.realtek.bluetooth.en",value,"false");
+    memset(rtkbt_cts_info.addr,0xff,6);
+    if(strncmp(value, "true", 4) == 0){
         rtkbt_cts_info.finded = true;
     }
 
-    ALOGI("rtk_btsnoop_dump = %d, rtk_btsnoop_save_log = %d", rtk_btsnoop_dump, rtk_btsnoop_save_log);
-    if (rtk_btsnoop_dump)
-    {
+    ALOGE("rtk_btsnoop_dump = %d, rtk_btsnoop_save_log = %d", rtk_btsnoop_dump, rtk_btsnoop_save_log);
+    if(rtk_btsnoop_dump)
         rtk_btsnoop_open();
-    }
-    if (rtk_btsnoop_net_dump)
-    {
+    if(rtk_btsnoop_net_dump)
         rtk_btsnoop_net_open();
-    }
 
     return 0;
 }
@@ -533,236 +422,195 @@ static int op(bt_vendor_opcode_t opcode, void *param)
 
     //BTVNDDBG("op for %d", opcode);
 
-    switch (opcode)
+    switch(opcode)
     {
-    case BT_VND_OP_POWER_CTRL:
-        {
-            if (rtkbt_transtype & RTKBT_TRANS_UART)
+        case BT_VND_OP_POWER_CTRL:
             {
-                int *state = (int *) param;
-                if (*state == BT_VND_PWR_OFF)
-                {
-                    upio_set_bluetooth_power(UPIO_BT_POWER_OFF);
-                    usleep(200000);
-                    BTVNDDBG("set power off and delay 200ms");
-                }
-                else if (*state == BT_VND_PWR_ON)
-                {
-                    upio_set_bluetooth_power(UPIO_BT_POWER_OFF);
-                    usleep(200000);
-                    BTVNDDBG("set power off and delay 200ms");
-                    upio_set_bluetooth_power(UPIO_BT_POWER_ON);
-                    //usleep(200000);
-                    BTVNDDBG("set power on and delay 00ms");
-                }
-            }
-        }
-        break;
-
-    case BT_VND_OP_FW_CFG:
-        {
-            if (rtkbt_transtype & RTKBT_TRANS_UART)
-            {
-                hw_config_start(rtkbt_transtype);
-            }
-            else
-            {
-                int usb_info = 0;
-                retval = userial_vendor_usb_ioctl(GET_USB_INFO, &usb_info);
-                if (retval == -1)
-                {
-                    ALOGE("get usb info fail");
-                    if (bt_vendor_cbacks)
+                if(rtkbt_transtype & RTKBT_TRANS_UART) {
+                    int *state = (int *) param;
+                    if (*state == BT_VND_PWR_OFF)
                     {
-                        bt_vendor_cbacks->fwcfg_cb(BT_VND_OP_RESULT_FAIL);
+                        upio_set_bluetooth_power(UPIO_BT_POWER_OFF);
+                        usleep(200000);
+                        BTVNDDBG("set power off and delay 200ms");
                     }
-                    return retval;
+                    else if (*state == BT_VND_PWR_ON)
+                    {
+                        upio_set_bluetooth_power(UPIO_BT_POWER_OFF);
+                        usleep(200000);
+                        BTVNDDBG("set power off and delay 200ms");
+                        upio_set_bluetooth_power(UPIO_BT_POWER_ON);
+                        //usleep(200000);
+                        BTVNDDBG("set power on and delay 00ms");
+                    }
                 }
-                else
-                {
+            }
+            break;
+
+        case BT_VND_OP_FW_CFG:
+            {
+                if(rtkbt_transtype & RTKBT_TRANS_UART) {
+                    hw_config_start(rtkbt_transtype);
+                }
+                else {
+                  int usb_info = 0;
+                  retval = userial_vendor_usb_ioctl(GET_USB_INFO, &usb_info);
+                  if(retval == -1) {
+                    ALOGE("get usb info fail");
+                    if(bt_vendor_cbacks)
+                       bt_vendor_cbacks->fwcfg_cb(BT_VND_OP_RESULT_FAIL);
+                    return retval;
+                  }
+                  else
                     hw_usb_config_start(RTKBT_TRANS_H4, usb_info);
                 }
             }
-        }
-        break;
+            break;
 
-    case BT_VND_OP_SCO_CFG:
-        {
-            retval = -1;
-        }
-        break;
-
-    case BT_VND_OP_USERIAL_OPEN:
-        {
-            if ((rtkbt_transtype & RTKBT_TRANS_UART) && (rtkbt_transtype & RTKBT_TRANS_H5))
+        case BT_VND_OP_SCO_CFG:
             {
-                int fd, idx;
-                int (*fd_array)[] = (int (*)[]) param;
-                if (userial_vendor_open((tUSERIAL_CFG *) &userial_H5_cfg) != -1)
-                {
-                    retval = 1;
-                }
-
-                fd = userial_socket_open();
-                if (fd != -1)
-                {
-                    for (idx = 0; idx < CH_MAX; idx++)
-                    {
-                        (*fd_array)[idx] = fd;
-                    }
-                }
-                else
-                {
-                    retval = 0;
-                }
-
-                /* retval contains numbers of open fd of HCI channels */
+                retval = -1;
             }
-            else if ((rtkbt_transtype & RTKBT_TRANS_UART) && ((rtkbt_transtype & RTKBT_TRANS_H4) ||
-                                                              (rtkbt_transtype & RTKBT_TRANS_H45)))
+            break;
+
+        case BT_VND_OP_USERIAL_OPEN:
             {
-                int (*fd_array)[] = (int (*)[]) param;
-                int fd, idx;
-                if (userial_vendor_open((tUSERIAL_CFG *) &userial_H4_cfg) != -1)
-                {
-                    retval = 1;
-                }
-                fd = userial_socket_open();
-                if (fd != -1)
-                {
-                    for (idx = 0; idx < CH_MAX; idx++)
-                    {
-                        (*fd_array)[idx] = fd;
-                    }
-                }
-                else
-                {
-                    retval = 0;
-                }
-                /* retval contains numbers of open fd of HCI channels */
-            }
-            else
-            {
-                BTVNDDBG("USB op for %d", opcode);
-                int fd, idx = 0;
-                int (*fd_array)[] = (int (*)[]) param;
-                for (idx = 0; idx < 10; idx++)
-                {
-                    if (userial_vendor_usb_open() != -1)
-                    {
+                if((rtkbt_transtype & RTKBT_TRANS_UART) && (rtkbt_transtype & RTKBT_TRANS_H5)) {
+                    int fd, idx;
+                    int (*fd_array)[] = (int (*)[]) param;
+                    if(userial_vendor_open((tUSERIAL_CFG *) &userial_H5_cfg) != -1){
                         retval = 1;
-                        break;
                     }
-                }
-                fd = userial_socket_open();
-                if (fd != -1)
-                {
-                    for (idx = 0; idx < CH_MAX; idx++)
+
+                    fd = userial_socket_open();
+                    if (fd != -1)
                     {
-                        (*fd_array)[idx] = fd;
+                        for (idx=0; idx < CH_MAX; idx++)
+                            (*fd_array)[idx] = fd;
+                    }
+                    else
+                        retval = 0;
+
+                /* retval contains numbers of open fd of HCI channels */
+                }
+                else if((rtkbt_transtype & RTKBT_TRANS_UART) && ((rtkbt_transtype & RTKBT_TRANS_H4) || (rtkbt_transtype & RTKBT_TRANS_H45))) {
+                    int (*fd_array)[] = (int (*)[]) param;
+                    int fd, idx;
+                    if(userial_vendor_open((tUSERIAL_CFG *) &userial_H4_cfg) != -1) {
+                        retval = 1;
+                    }
+                    fd = userial_socket_open();
+                    if (fd != -1)
+                    {
+                        for (idx=0; idx < CH_MAX; idx++)
+                            (*fd_array)[idx] = fd;
+                    }
+                    else
+                        retval = 0;
+                /* retval contains numbers of open fd of HCI channels */
+                }
+                else {
+                    BTVNDDBG("USB op for %d", opcode);
+                    int fd, idx = 0;
+                    int (*fd_array)[] = (int (*)[]) param;
+                    for(idx = 0; idx < 10; idx++) {
+                        if(userial_vendor_usb_open() != -1){
+                            retval = 1;
+                            break;
+                        }
+                    }
+                    fd = userial_socket_open();
+                    if (fd != -1)
+                    {
+                        for (idx = 0; idx < CH_MAX; idx++)
+                            (*fd_array)[idx] = fd;
+                    }
+                    else
+                        retval = 0;
+
+                }
+            }
+            break;
+
+        case BT_VND_OP_USERIAL_CLOSE:
+            {
+                userial_vendor_close();
+            }
+            break;
+
+        case BT_VND_OP_GET_LPM_IDLE_TIMEOUT:
+            {
+
+            }
+            break;
+
+        case BT_VND_OP_LPM_SET_MODE:
+            {
+                bt_vendor_lpm_mode_t mode = *(bt_vendor_lpm_mode_t *) param;
+                //for now if the mode is BT_VND_LPM_DISABLE, we guess the hareware bt
+                //interface is closing, we shall not send any cmd to the interface.
+                if(mode == BT_VND_LPM_DISABLE) {
+                    userial_set_bt_interface_state(0);
+                }
+            }
+            break;
+
+        case BT_VND_OP_LPM_WAKE_SET_STATE:
+            {
+
+            }
+            break;
+        case BT_VND_OP_EPILOG:
+            {
+                if(rtkbt_transtype & RTKBT_TRANS_USB) {
+                    if (bt_vendor_cbacks)
+                    {
+                        bt_vendor_cbacks->epilog_cb(BT_VND_OP_RESULT_SUCCESS);
                     }
                 }
-                else
-                {
-                    retval = 0;
-                }
-
-            }
-        }
-        break;
-
-    case BT_VND_OP_USERIAL_CLOSE:
-        {
-            userial_vendor_close();
-        }
-        break;
-
-    case BT_VND_OP_GET_LPM_IDLE_TIMEOUT:
-        {
-
-        }
-        break;
-
-    case BT_VND_OP_LPM_SET_MODE:
-        {
-            bt_vendor_lpm_mode_t mode = *(bt_vendor_lpm_mode_t *) param;
-            //for now if the mode is BT_VND_LPM_DISABLE, we guess the hareware bt
-            //interface is closing, we shall not send any cmd to the interface.
-            if (mode == BT_VND_LPM_DISABLE)
-            {
-                userial_set_bt_interface_state(0);
-            }
-        }
-        break;
-
-    case BT_VND_OP_LPM_WAKE_SET_STATE:
-        {
-
-        }
-        break;
-    case BT_VND_OP_EPILOG:
-        {
-            if (rtkbt_transtype & RTKBT_TRANS_USB)
-            {
-                if (bt_vendor_cbacks)
-                {
-                    bt_vendor_cbacks->epilog_cb(BT_VND_OP_RESULT_SUCCESS);
-                }
-            }
-            else
-            {
+                else {
 #if (HW_END_WITH_HCI_RESET == FALSE)
-                if (bt_vendor_cbacks)
-                {
-                    bt_vendor_cbacks->epilog_cb(BT_VND_OP_RESULT_SUCCESS);
-                }
+                    if (bt_vendor_cbacks)
+                    {
+                        bt_vendor_cbacks->epilog_cb(BT_VND_OP_RESULT_SUCCESS);
+                    }
 #else
-                hw_epilog_process();
+                    hw_epilog_process();
 #endif
+                }
             }
-        }
-        break;
+            break;
 
-    default:
-        break;
+        default:
+            break;
     }
 
     return retval;
 }
 
 /** Closes the interface */
-static void cleanup(void)
+static void cleanup( void )
 {
     BTVNDDBG("cleanup");
 
-#if 0
-    if (rtkbt_transtype & RTKBT_TRANS_UART)
-    {
+    if(rtkbt_transtype & RTKBT_TRANS_UART) {
         upio_cleanup();
         bt_wake_up_host_mode_set(0);
     }
-#endif
-
     bt_vendor_cbacks = NULL;
 
-    if (rtk_btsnoop_dump)
-    {
+    if(rtk_btsnoop_dump)
         rtk_btsnoop_close();
-    }
-    if (rtk_btsnoop_net_dump)
-    {
+    if(rtk_btsnoop_net_dump)
         rtk_btsnoop_net_close();
-    }
-    if (rtkbt_capture_fw_log)
-    {
-        hci_close_firmware_log_file(hci_firmware_log_fd);
-    }
+	if(rtkbt_capture_fw_log){
+		hci_close_firmware_log_file(hci_firmware_log_fd);
+	}
     rtkbt_stack_conf_cleanup();
 }
 
 // Entry point of DLib
-const bt_vendor_interface_t BLUETOOTH_VENDOR_LIB_INTERFACE =
-{
+const bt_vendor_interface_t BLUETOOTH_VENDOR_LIB_INTERFACE = {
     sizeof(bt_vendor_interface_t),
     init,
     op,
