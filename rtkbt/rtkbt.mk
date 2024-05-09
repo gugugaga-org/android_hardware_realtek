@@ -5,17 +5,17 @@ CUR_PATH := hardware/realtek/rtkbt
 
 BOARD_HAVE_BLUETOOTH := true
 BOARD_HAVE_BLUETOOTH_RTK := true
-BOARD_HAVE_BLUETOOTH_RTK_TV := true
+BOARD_HAVE_BLUETOOTH_RTK_TV := false
 
-ifeq ($(BOARD_HAVE_BLUETOOTH_RTK_TV), true)
+#ifeq ($(BOARD_HAVE_BLUETOOTH_RTK_TV), true)
 #Firmware For Tv
-include $(LOCAL_PATH)/Firmware/TV/TV_Firmware.mk
-else
+#include $(LOCAL_PATH)/Firmware/TV/TV_Firmware.mk
+#else
 #Firmware For Tablet
-include $(LOCAL_PATH)/Firmware/BT/BT_Firmware.mk
-endif
+#include $(LOCAL_PATH)/Firmware/BT/BT_Firmware.mk
+#endif
 
-BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := $(LOCAL_PATH)/bluetooth
+#BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := $(LOCAL_PATH)/bluetooth
 
 PRODUCT_COPY_FILES += $(CUR_PATH)/vendor/etc/bluetooth/rtkbt.conf:vendor/etc/bluetooth/rtkbt.conf
        $(CUR_PATH)/system/etc/permissions/android.hardware.bluetooth_le.xml:system/etc/permissions/android.hardware.bluetooth_le.xml \
@@ -27,6 +27,12 @@ PRODUCT_COPY_FILES += $(CUR_PATH)/vendor/usr/keylayout/Vendor_005d_Product_0002.
 PRODUCT_COPY_FILES += $(CUR_PATH)/frameworks/native/data/etc/android.hardware.bluetooth_le.xml:vendor/etc/permissions/android.hardware.bluetooth_le.xml
 PRODUCT_COPY_FILES += $(CUR_PATH)/frameworks/native/data/etc/android.hardware.bluetooth.xml:vendor/etc/permissions/android.hardware.bluetooth.xml
 endif
+
+PRODUCT_COPY_FILES += \
+    $(CUR_PATH)/Firmware/BT/rtl8822b_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822b_config \
+    $(CUR_PATH)/Firmware/BT/rtl8822b_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822b_fw \
+    $(CUR_PATH)/Firmware/BT/rtl8822c_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822c_config \
+    $(CUR_PATH)/Firmware/BT/rtl8822c_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822c_fw
 
 PRODUCT_PACKAGES += \
     android.hardware.bluetooth@1.1-service \
