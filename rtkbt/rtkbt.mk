@@ -28,6 +28,13 @@ PRODUCT_COPY_FILES += $(CUR_PATH)/frameworks/native/data/etc/android.hardware.bl
 PRODUCT_COPY_FILES += $(CUR_PATH)/frameworks/native/data/etc/android.hardware.bluetooth.xml:vendor/etc/permissions/android.hardware.bluetooth.xml
 endif
 
+ifeq ($(TARGET_BOARD_PLATFORM),rk3288)
+PRODUCT_COPY_FILES += \
+    $(CUR_PATH)/Firmware/BT/rtl8723bs_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8723bs_config \
+    $(CUR_PATH)/Firmware/BT/rtl8723bs_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8723bs_fw \
+    $(CUR_PATH)/Firmware/BT/rtl8723ds_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8723ds_config \
+    $(CUR_PATH)/Firmware/BT/rtl8723ds_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8723ds_fw
+else
 PRODUCT_COPY_FILES += \
     $(CUR_PATH)/Firmware/BT/rtl8822b_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822b_config \
     $(CUR_PATH)/Firmware/BT/rtl8822b_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822b_fw \
@@ -35,6 +42,7 @@ PRODUCT_COPY_FILES += \
     $(CUR_PATH)/Firmware/BT/rtl8822c_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8822c_fw  \
     $(CUR_PATH)/Firmware/BT/rtl8852bu_config:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8852bu_config \
     $(CUR_PATH)/Firmware/BT/rtl8852bu_fw:$(TARGET_COPY_OUT_VENDOR)/firmware/rtl8852bu_fw
+endif
 
 PRODUCT_PACKAGES += \
     android.hardware.bluetooth@1.1-service \
