@@ -47,7 +47,6 @@ PRODUCT_COPY_FILES += \
 endif
 
 PRODUCT_PACKAGES += \
-    android.hardware.bluetooth@1.1-service \
     libbt-vendor-realtek \
 
 
