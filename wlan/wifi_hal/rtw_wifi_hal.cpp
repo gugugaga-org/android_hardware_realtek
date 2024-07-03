@@ -1306,18 +1306,18 @@ static wifi_error wifi_stop_rssi_monitoring(wifi_request_id id, wifi_interface_h
 static wifi_error wifi_get_packet_filter_capabilities(wifi_interface_handle handle,
         u32 *version, u32 *max_len)
 {
-#if 0
+    wifi_error result = WIFI_SUCCESS;
     ALOGD("Getting APF capabilities, halHandle = %p\n", handle);
-    AndroidPktFilterCommand *cmd = new AndroidPktFilterCommand(handle, version, max_len);
+    *version = 4;
+    *max_len = 1024;
+    /*AndroidPktFilterCommand *cmd = new AndroidPktFilterCommand(handle, version, max_len);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    wifi_error result = (wifi_error)cmd->start();
+    wifi_error result = (wifi_error)cmd->start();*/
     if (result == WIFI_SUCCESS) {
         ALOGD("Getting APF capability, version = %d, max_len = %d\n", *version, *max_len);
     }
-    cmd->releaseRef();
+    //cmd->releaseRef();
     return result;
-#endif
-	return WIFI_SUCCESS;
 }
 
 static wifi_error wifi_set_packet_filter(wifi_interface_handle handle,
