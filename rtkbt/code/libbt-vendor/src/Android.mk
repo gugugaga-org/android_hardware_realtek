@@ -2,7 +2,7 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 
-BDROID_DIR := $(TOP_DIR)system/bt
+BDROID_DIR := $(TOP_DIR)packages/modules/Bluetooth/system
 
 LOCAL_SRC_FILES := \
         rtk_socket.c \
@@ -35,7 +35,7 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_WHOLE_STATIC_LIBRARIES := \
         libbt-codec
 
-LOCAL_MODULE := libbt-vendor-realtek
+LOCAL_MODULE := libbt-vendor
 LOCAL_MODULE_TAGS := optional
 LOCAL_PROPRIETARY_MODULE := true
 LOCAL_MODULE_CLASS := SHARED_LIBRARIES

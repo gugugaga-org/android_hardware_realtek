@@ -24,6 +24,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "hci_layer_legacy.h"
 #include "bt_hci_bdroid.h"
 #include "bt_vendor_lib.h"
 #include <errno.h>

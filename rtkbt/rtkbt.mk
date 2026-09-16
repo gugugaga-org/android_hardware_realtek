@@ -49,8 +49,7 @@ endif
 # base bluetooth
 PRODUCT_PACKAGES += \
     Bluetooth \
-    libbt-vendor-realtek \
-    audio.a2dp.default \
+    libbt-vendor \
     bluetooth.default \
     android.hardware.bluetooth@1.0-impl \
     android.hidl.memory@1.0-impl \
