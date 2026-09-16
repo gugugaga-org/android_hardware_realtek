@@ -47,7 +47,7 @@ PRODUCT_COPY_FILES += \
 endif
 
 PRODUCT_PACKAGES += \
-    libbt-vendor-realtek \
+    libbt-vendor \
 
 
 PRODUCT_PROPERTY_OVERRIDES += \
