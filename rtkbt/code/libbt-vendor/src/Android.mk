@@ -2,6 +2,7 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 
+BDROID_DIR := $(TOP_DIR)packages/modules/Bluetooth/system
 BVENDOR_DIR := $(TOP_DIR)hardware/interfaces/bluetooth/1.0/default/
 
 LOCAL_SRC_FILES := \
@@ -25,6 +26,7 @@ LOCAL_C_INCLUDES += \
         $(LOCAL_PATH)/../include \
         $(LOCAL_PATH)/../codec/sbc \
         $(LOCAL_PATH)/../codec/plc \
+        $(BDROID_DIR)/hci/include \
         $(BVENDOR_DIR)
 
 LOCAL_SHARED_LIBRARIES := \
@@ -35,7 +37,7 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_WHOLE_STATIC_LIBRARIES := \
         libbt-codec
 
-LOCAL_MODULE := libbt-vendor-realtek
+LOCAL_MODULE := libbt-vendor
 LOCAL_MODULE_TAGS := optional
 LOCAL_PROPRIETARY_MODULE := true
 LOCAL_MODULE_CLASS := SHARED_LIBRARIES
