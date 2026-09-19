@@ -47,10 +47,10 @@
 #include <log/log.h>
 
 #include "version.h"
-#include "wifi_hal.h"
+#include <hardware_legacy/wifi_hal.h>
 #include "common.h"
 #include "cpp_bindings.h"
-#include "rtt.h"
+#include <hardware_legacy/rtt.h>
 
 /*
  BUGBUG: normally, libnl allocates ports for all connections it makes; but
