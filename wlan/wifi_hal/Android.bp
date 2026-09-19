@@ -28,12 +28,12 @@ cc_library_static {
     ],
     include_dirs: [
 		"external/libnl/include",
-		"hardware/libhardware_legacy/include/hardware_legacy",
 		"external/wpa_supplicant_8/src/drivers",
 	],
 	header_libs: [
 		"libutils_headers",
 		"liblog_headers",
+		"wifi_legacy_headers",
 	],
     srcs: [
 		"rtw_wifi_hal.cpp",
