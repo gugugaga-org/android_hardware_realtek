@@ -191,7 +191,7 @@ void rtkbt_heartbeat_cmpl_cback (void *p_params)
 }
 
 
-static void heartbeat_timed_out()//(union sigval arg)
+static void heartbeat_timed_out(union sigval)
 {
     int count;
     uint8_t heartbeat_cmd[4] = {0x01, 0x94, 0xfc, 0x00};

@@ -406,7 +406,7 @@ static void Rtk_Service_Send_Hwerror_Event()
 
 }
 
-static void* cmdready_thread()
+static void* cmdready_thread(void *)
 {
     //Rtkqueuedata* rtk_data;
 
@@ -712,7 +712,7 @@ static int rtk_socket_accept(int socketfd)
     return 0;
 }
 
-static void *epoll_thread()
+static void *epoll_thread(void *)
 {
     struct epoll_event events[64] = {{0}};
     int nfds=0;
